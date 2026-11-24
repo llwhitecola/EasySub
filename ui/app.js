@@ -1375,11 +1375,15 @@ function bindModalsAndTopbar() {
   document.getElementById("btnPickMergeFile").addEventListener("click", async () => {
     if (!hasApi()) return;
     const alignMode = document.getElementById("selMergeAlign").value;
+    const timeBase = document.getElementById("selMergeTimeBase").value;
+    const tolMs = Number(document.getElementById("inpMergeTolerance").value || 800);
     const res = await window.pywebview.api.pick_subtitle_file(
       "merge",
       "auto",
       alignMode,
-      state.subtitles
+      state.subtitles,
+      timeBase,
+      tolMs
     );
     if (res.ok) {
       pushUndoSnapshot();
@@ -1388,11 +1392,66 @@ function bindModalsAndTopbar() {
       renderTable();
       updateSubtitleOverlay();
       drawWaveform();
-      showToast(`成功合并双语字幕！当前共 ${res.count} 句`, "success");
+      const detail =
+        res.matched_count !== undefined
+          ? `（成功配对 ${res.matched_count} 组，独立保留 ${res.unmatched_secondary || 0} 条）`
+          : "";
+      showToast(`合并双语完成！当前共 ${res.count} 句 ${detail}`, "success");
     } else if (res.error) {
       showToast(res.error, "error");
     }
   });
+
+  // In-table Bilingual Pairing & Report Preview (v4.1 Enhanced)
+  document.getElementById("btnOpenInternalMerge").addEventListener("click", () => {
+    document.getElementById("mergeReportPre").classList.add("hidden");
+    openModal("modalImport");
+    setTimeout(() => {
+      document.getElementById("secInternalMergeBox")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  });
+
+  const runInternalMergeAction = async (previewOnly) => {
+    if (!hasApi()) return;
+    const timeBase = document.getElementById("selIntTimeBase").value;
+    const matchMode = document.getElementById("selIntMatchMode").value;
+    const tolMs = Number(document.getElementById("inpIntTolerance").value || 200);
+    const res = await window.pywebview.api.merge_table_bilingual_rows(
+      state.subtitles,
+      tolMs,
+      timeBase,
+      matchMode,
+      previewOnly
+    );
+    if (!res.ok) {
+      showToast(res.error || "合并检查出错", "error");
+      return;
+    }
+    const reportEl = document.getElementById("mergeReportPre");
+    reportEl.textContent = res.report || "";
+    reportEl.classList.remove("hidden");
+
+    if (previewOnly) {
+      showToast(`预览完成：共找到 ${res.matched_count} 组可合并配对`);
+      return;
+    }
+
+    if (res.matched_count === 0) {
+      showToast("未找到符合时间误差条件的单语中英配对行（可适当调大允许误差或切换重叠匹配）");
+      return;
+    }
+
+    pushUndoSnapshot();
+    state.subtitles = res.subtitles;
+    state.selectedIdx = 0;
+    renderTable();
+    updateSubtitleOverlay();
+    drawWaveform();
+    showToast(`成功合并 ${res.matched_count} 组中英双语字幕！（可按 Ctrl+Z 撤销）`, "success");
+  };
+
+  document.getElementById("btnPreviewInternalMerge").addEventListener("click", () => runInternalMergeAction(true));
+  document.getElementById("btnRunInternalMerge").addEventListener("click", () => runInternalMergeAction(false));
 
   document.getElementById("btnConfirmPaste").addEventListener("click", async () => {
     const txt = document.getElementById("txtPasteScript").value.trim();

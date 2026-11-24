@@ -42,6 +42,7 @@ from core.subtitles import (
     export_ass,
     export_srt,
     load_subtitle_file,
+    merge_internal_bilingual_lines,
     merge_two_subtitles,
     parse_plain_text,
 )
@@ -298,6 +299,8 @@ class DesktopBridgeApi:
         lang_hint: str = "auto",
         align_mode: str = "time",
         current_subtitles: list[dict[str, Any]] | None = None,
+        time_base: str = "union",
+        tolerance_ms: int = 800,
     ) -> dict[str, Any]:
         """
         action: 'replace' | 'merge'
@@ -319,6 +322,8 @@ class DesktopBridgeApi:
             lang_hint=lang_hint,
             align_mode=align_mode,
             current_subtitles=current_subtitles,
+            time_base=time_base,
+            tolerance_ms=tolerance_ms,
         )
 
     def load_subtitle_by_path(
@@ -328,22 +333,29 @@ class DesktopBridgeApi:
         lang_hint: str = "auto",
         align_mode: str = "time",
         current_subtitles: list[dict[str, Any]] | None = None,
+        time_base: str = "union",
+        tolerance_ms: int = 800,
     ) -> dict[str, Any]:
         try:
             path = Path(raw_path)
             loaded = load_subtitle_file(path, lang_hint=lang_hint)
             if action == "merge" and current_subtitles:
-                merged = merge_two_subtitles(
+                merged, stats = merge_two_subtitles(
                     current_subtitles,
                     loaded,
                     secondary_lang=lang_hint,
                     align_mode=align_mode,
+                    time_base=time_base,
+                    tolerance_ms=int(tolerance_ms),
+                    return_stats=True,
                 )
                 return {
                     "ok": True,
                     "file_name": path.name,
                     "subtitles": merged,
                     "count": len(merged),
+                    "matched_count": stats["matched_count"],
+                    "unmatched_secondary": stats["unmatched_secondary"],
                 }
             return {
                 "ok": True,
@@ -353,6 +365,26 @@ class DesktopBridgeApi:
             }
         except Exception as exc:
             return {"ok": False, "error": f"解析字幕文件失败: {exc}"}
+
+    def merge_table_bilingual_rows(
+        self,
+        subtitles: list[dict[str, Any]],
+        tolerance_ms: int = 200,
+        time_base: str = "union",
+        match_mode: str = "tolerance",
+        preview_only: bool = False,
+    ) -> dict[str, Any]:
+        """Smartly pair & merge separate CN and EN rows inside the current subtitle table."""
+        try:
+            return merge_internal_bilingual_lines(
+                subtitles=subtitles,
+                tolerance_ms=int(tolerance_ms),
+                time_base=time_base,
+                match_mode=match_mode,
+                preview_only=bool(preview_only),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"合并失败: {exc}"}
 
     def import_pasted_script(
         self,

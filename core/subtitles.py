@@ -242,6 +242,16 @@ def has_cjk(text: str) -> bool:
     return bool(CJK_RE.search(text))
 
 
+def is_chinese_clean(text: str) -> bool:
+    """Strictly contains CJK ideographs."""
+    return bool(CJK_RE.search(text))
+
+
+def is_english_clean(text: str) -> bool:
+    """Contains Latin letters [A-Za-z] and NO CJK ideographs (excludes pure symbols/numbers like '♪' or '1999')."""
+    return bool(LATIN_RE.search(text)) and not bool(CJK_RE.search(text))
+
+
 def cjk_ratio(text: str) -> float:
     clean = re.sub(r"\s+", "", text)
     if not clean:
@@ -287,27 +297,35 @@ def split_bilingual_lines(raw_text: str, lang_hint: str = "auto") -> tuple[str, 
     lines = [ln.strip() for ln in cleaned.splitlines() if ln.strip()]
     if len(lines) == 1:
         line = lines[0]
-        if has_cjk(line):
+        if is_chinese_clean(line):
             return line, ""
-        return "", line
+        if is_english_clean(line):
+            return "", line
+        # Pure numbers/symbols (e.g. '1999', '...', '♪'): keep in primary zh slot rather than misclassifying as English
+        return line, ""
 
-    # Multi-line cue: separate lines with CJK vs non-CJK
+    # Multi-line cue: separate lines with CJK vs strict English vs neutral symbols
     zh_lines: list[str] = []
     en_lines: list[str] = []
+    neutral_lines: list[str] = []
     for ln in lines:
-        if has_cjk(ln):
+        if is_chinese_clean(ln):
             zh_lines.append(ln)
-        else:
+        elif is_english_clean(ln):
             en_lines.append(ln)
+        else:
+            neutral_lines.append(ln)
 
     if zh_lines and en_lines:
+        if neutral_lines:
+            zh_lines.extend(neutral_lines)
         return " ".join(zh_lines), " ".join(en_lines)
 
     # All lines same language: keep together
     joined = " ".join(lines)
-    if has_cjk(joined):
-        return joined, ""
-    return "", joined
+    if is_english_clean(joined):
+        return "", joined
+    return joined, ""
 
 
 def parse_srt_timestamp(ts: str) -> int:
@@ -393,6 +411,14 @@ def parse_srt_or_vtt(content: str, lang_hint: str = "auto") -> list[dict[str, An
                 "en": en,
             }
         )
+
+    # Automatically merge pseudo-bilingual SRTs where CN and EN are separate blocks at matching timestamps (<=150ms)
+    if lang_hint == "auto" and len(items) >= 2:
+        auto_res = merge_internal_bilingual_lines(
+            items, tolerance_ms=150, time_base="union", match_mode="tolerance", preview_only=False
+        )
+        if auto_res["matched_count"] > 0:
+            return auto_res["subtitles"]
     return items
 
 
@@ -442,6 +468,7 @@ def parse_ass(content: str, lang_hint: str = "auto") -> list[dict[str, Any]]:
                 continue
             raw_events.append(
                 {
+                    "id": len(raw_events) + 1,
                     "start_ms": start_ms,
                     "end_ms": max(end_ms, start_ms + 500),
                     "zh": zh,
@@ -449,28 +476,15 @@ def parse_ass(content: str, lang_hint: str = "auto") -> list[dict[str, Any]]:
                 }
             )
 
-    # Some ASS files put Chinese and English as two separate Dialogue lines at identical timestamps.
-    # Automatically merge adjacent/identical timestamp events if one is ZH and the other is EN!
     raw_events.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
-    merged: list[dict[str, Any]] = []
-    for ev in raw_events:
-        if merged:
-            prev = merged[-1]
-            same_time = (
-                abs(prev["start_ms"] - ev["start_ms"]) <= 120
-                and abs(prev["end_ms"] - ev["end_ms"]) <= 120
-            )
-            if same_time:
-                if prev["zh"] and not prev["en"] and ev["en"] and not ev["zh"]:
-                    prev["en"] = ev["en"]
-                    continue
-                if prev["en"] and not prev["zh"] and ev["zh"] and not ev["en"]:
-                    prev["zh"] = ev["zh"]
-                    continue
-        ev["id"] = len(merged) + 1
-        merged.append(ev)
-
-    return merged
+    reindex_subtitles(raw_events)
+    if lang_hint == "auto" and len(raw_events) >= 2:
+        auto_res = merge_internal_bilingual_lines(
+            raw_events, tolerance_ms=150, time_base="union", match_mode="tolerance", preview_only=False
+        )
+        if auto_res["matched_count"] > 0:
+            return auto_res["subtitles"]
+    return raw_events
 
 
 def parse_plain_text(
@@ -580,18 +594,231 @@ def load_subtitle_file(file_path: str | Path, lang_hint: str = "auto") -> list[d
     return parse_plain_text(content, mode=mode)
 
 
+def _resolve_merged_times(
+    cn_start: int,
+    cn_end: int,
+    en_start: int,
+    en_end: int,
+    time_base: str,
+    pri_start: int,
+    pri_end: int,
+) -> tuple[int, int]:
+    """
+    Compute merged (start_ms, end_ms) based on user-selected time_base:
+      - 'union': min(start), max(end) (covers longest span, prevents clipping)
+      - 'zh': Chinese line timing
+      - 'en': English line timing
+      - 'primary': Primary subtitle timing
+    """
+    if time_base == "zh":
+        return cn_start, max(cn_end, cn_start + 200)
+    if time_base == "en":
+        return en_start, max(en_end, en_start + 200)
+    if time_base == "primary":
+        return pri_start, max(pri_end, pri_start + 200)
+    # Default: 'union'
+    s = min(cn_start, en_start)
+    e = max(cn_end, en_end, s + 200)
+    return s, e
+
+
+def merge_internal_bilingual_lines(
+    subtitles: list[dict[str, Any]],
+    tolerance_ms: int = 200,
+    time_base: str = "union",
+    match_mode: str = "tolerance",
+    preview_only: bool = False,
+) -> dict[str, Any]:
+    """
+    Smartly merge separate single-language Chinese & English rows within a single subtitle list!
+    Inspired by Aegisub v4.1 macro, enhanced so rows DO NOT even need to be strictly alternating
+    (works both for [CN, EN, CN, EN...] and [all CN..., all EN...]).
+
+    match_mode:
+      - 'tolerance': abs(start1 - start2) <= tolerance_ms and abs(end1 - end2) <= tolerance_ms
+      - 'overlap': time overlap > 0 or midpoint distance <= tolerance_ms
+    """
+    tol = max(0, int(tolerance_ms))
+    cn_candidates: list[int] = []
+    en_candidates: list[int] = []
+
+    for i, item in enumerate(subtitles):
+        zh = (item.get("zh") or "").strip()
+        en = (item.get("en") or "").strip()
+        if zh and not en and is_chinese_clean(zh):
+            cn_candidates.append(i)
+        elif en and not zh and is_english_clean(en):
+            en_candidates.append(i)
+
+    used_en: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    report_lines: list[str] = [
+        f"扫描完成：检测到单语中文行 {len(cn_candidates)} 条，单语英文行 {len(en_candidates)} 条（允许误差: ±{tol}ms）"
+    ]
+
+    for cn_idx in cn_candidates:
+        cn_row = subtitles[cn_idx]
+        c_s, c_e = int(cn_row["start_ms"]), int(cn_row["end_ms"])
+        best_en = -1
+        best_score = -1e12
+
+        for en_idx in en_candidates:
+            if en_idx in used_en:
+                continue
+            en_row = subtitles[en_idx]
+            e_s, e_e = int(en_row["start_ms"]), int(en_row["end_ms"])
+            start_diff = abs(c_s - e_s)
+            end_diff = abs(c_e - e_e)
+
+            if match_mode == "tolerance":
+                if start_diff <= tol and end_diff <= tol:
+                    # Prefer closest timestamp, with slight tie-breaker for adjacent row index
+                    score = -(start_diff + end_diff) - abs(cn_idx - en_idx) * 0.5
+                    if score > best_score:
+                        best_score = score
+                        best_en = en_idx
+            else:
+                overlap = min(c_e, e_e) - max(c_s, e_s)
+                if overlap > 0:
+                    score = overlap * 2.0 - (start_diff + end_diff) * 0.25
+                    if score > best_score:
+                        best_score = score
+                        best_en = en_idx
+                elif start_diff <= tol and end_diff <= tol:
+                    score = -(start_diff + end_diff)
+                    if score > best_score:
+                        best_score = score
+                        best_en = en_idx
+
+        if best_en >= 0:
+            used_en.add(best_en)
+            pairs.append((cn_idx, best_en))
+
+    paired_cn = {p[0] for p in pairs}
+    unmatched_cn = [i for i in cn_candidates if i not in paired_cn]
+    unmatched_en = [i for i in en_candidates if i not in used_en]
+
+    for k, (ci, ei) in enumerate(pairs[:80], start=1):
+        cr = subtitles[ci]
+        er = subtitles[ei]
+        ns, ne = _resolve_merged_times(
+            cr["start_ms"], cr["end_ms"], er["start_ms"], er["end_ms"],
+            time_base, cr["start_ms"], cr["end_ms"]
+        )
+        zh_short = (cr.get("zh") or "")[:18]
+        en_short = (er.get("en") or "")[:22]
+        report_lines.append(
+            f"✓ 配对 #{k}: 行{ci + 1}[中] + 行{ei + 1}[英] ➔ {format_ass_timestamp(ns)}~{format_ass_timestamp(ne)} | {zh_short} / {en_short}"
+        )
+    if len(pairs) > 80:
+        report_lines.append(f"…（其余 {len(pairs) - 80} 组成功配对已省略展示）")
+
+    for ui in (unmatched_cn + unmatched_en)[:25]:
+        ur = subtitles[ui]
+        tag = "中" if ui in unmatched_cn else "英"
+        txt = ((ur.get("zh") or ur.get("en")) or "")[:22]
+        report_lines.append(
+            f"⚠ 未配对: 行{ui + 1}[{tag}] ({format_ass_timestamp(ur['start_ms'])}) 时间误差超出阈值 | {txt}"
+        )
+
+    time_base_label = {
+        "union": "取两者并集 (覆盖最长)",
+        "zh": "以中文行时间为准",
+        "en": "以英文行时间为准",
+    }.get(time_base, time_base)
+    report_lines.append(
+        f"\n汇总：成功配对 {len(pairs)} 组 | 未配对单语行 {len(unmatched_cn) + len(unmatched_en)} 条 | 时间基准：{time_base_label}"
+    )
+
+    if preview_only or not pairs:
+        return {
+            "ok": True,
+            "matched_count": len(pairs),
+            "unmatched_count": len(unmatched_cn) + len(unmatched_en),
+            "report": "\n".join(report_lines),
+            "subtitles": subtitles,
+        }
+
+    # Build merged output list preserving chronological order
+    cn_to_en = dict(pairs)
+    deleted_indices = set()
+    new_list: list[dict[str, Any]] = []
+
+    for idx, item in enumerate(subtitles):
+        if idx in deleted_indices:
+            continue
+        if idx in cn_to_en:
+            en_idx = cn_to_en[idx]
+            en_item = subtitles[en_idx]
+            deleted_indices.add(en_idx)
+            ns, ne = _resolve_merged_times(
+                item["start_ms"], item["end_ms"],
+                en_item["start_ms"], en_item["end_ms"],
+                time_base, item["start_ms"], item["end_ms"],
+            )
+            merged_row = dict(item)
+            merged_row["start_ms"] = ns
+            merged_row["end_ms"] = ne
+            merged_row["zh"] = (item.get("zh") or "").strip()
+            merged_row["en"] = (en_item.get("en") or "").strip()
+            new_list.append(merged_row)
+        else:
+            # What if the English row appeared BEFORE its paired Chinese row?
+            # Since we iterate 0..N-1, check if idx is an en_idx paired with a LATER cn_idx!
+            paired_later_cn = next((ci for ci, ei in pairs if ei == idx and ci > idx), None)
+            if paired_later_cn is not None:
+                cn_item = subtitles[paired_later_cn]
+                deleted_indices.add(paired_later_cn)
+                ns, ne = _resolve_merged_times(
+                    cn_item["start_ms"], cn_item["end_ms"],
+                    item["start_ms"], item["end_ms"],
+                    time_base, item["start_ms"], item["end_ms"],
+                )
+                merged_row = dict(item)
+                merged_row["start_ms"] = ns
+                merged_row["end_ms"] = ne
+                merged_row["zh"] = (cn_item.get("zh") or "").strip()
+                merged_row["en"] = (item.get("en") or "").strip()
+                new_list.append(merged_row)
+            else:
+                new_list.append(dict(item))
+
+    new_list.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
+    reindex_subtitles(new_list)
+
+    return {
+        "ok": True,
+        "matched_count": len(pairs),
+        "unmatched_count": len(unmatched_cn) + len(unmatched_en),
+        "report": "\n".join(report_lines),
+        "subtitles": new_list,
+    }
+
+
 def merge_two_subtitles(
     primary_subs: list[dict[str, Any]],
     secondary_subs: list[dict[str, Any]],
     secondary_lang: str = "auto",
     align_mode: str = "time",
-) -> list[dict[str, Any]]:
+    time_base: str = "union",
+    tolerance_ms: int = 1200,
+    return_stats: bool = False,
+) -> Any:
     """
     Merge two subtitle lists into one clean bilingual subtitle list!
-    - align_mode == 'time': Smart overlap & midpoint alignment (handles slightly mismatched line counts!)
-    - align_mode == 'index': Line-by-line 1-to-1 pairing (ideal when secondary comes from plain text lines)
+    - align_mode:
+        'time' -> Smart overlap & midpoint alignment
+        'strict_time' -> Strict start & end tolerance matching (abs(diff) <= tolerance_ms)
+        'index' -> Line-by-line 1-to-1 pairing
+    - time_base:
+        'union' -> min(start), max(end)
+        'zh' -> Chinese line timing
+        'en' -> English line timing
+        'primary' -> Keep primary subtitle timing
     """
     result = [dict(item) for item in primary_subs]
+    tol = max(0, int(tolerance_ms))
+    matched_count = 0
 
     def extract_sec_text(sec_item: dict[str, Any]) -> tuple[str, str]:
         """Return ('zh'|'en', text) from secondary item."""
@@ -606,7 +833,9 @@ def merge_two_subtitles(
         if sec_item.get("en") and not sec_item.get("zh"):
             return "en", sec_item["en"]
         combined = f"{sec_item.get('zh', '')} {sec_item.get('en', '')}".strip()
-        return ("zh", combined) if has_cjk(combined) else ("en", combined)
+        if is_english_clean(combined):
+            return "en", combined
+        return "zh", combined
 
     if align_mode == "index":
         for idx, sec in enumerate(secondary_subs):
@@ -614,6 +843,7 @@ def merge_two_subtitles(
             if not txt:
                 continue
             if idx < len(result):
+                matched_count += 1
                 if result[idx].get(lang_key):
                     result[idx][lang_key] = f"{result[idx][lang_key]} {txt}".strip()
                 else:
@@ -627,42 +857,67 @@ def merge_two_subtitles(
                     "en": txt if lang_key == "en" else "",
                 }
                 result.append(new_item)
-        return reindex_subtitles(result)
+        final_list = reindex_subtitles(result)
+        if return_stats:
+            return final_list, {"matched_count": matched_count, "unmatched_secondary": max(0, len(secondary_subs) - matched_count)}
+        return final_list
 
-    # Time-based alignment
+    # Time-based alignment ('time' or 'strict_time')
     unmatched_secondary: list[dict[str, Any]] = []
     for sec in secondary_subs:
         lang_key, txt = extract_sec_text(sec)
         if not txt:
             continue
-        s_start = sec["start_ms"]
-        s_end = sec["end_ms"]
+        s_start = int(sec["start_ms"])
+        s_end = int(sec["end_ms"])
         s_mid = (s_start + s_end) / 2.0
 
         best_idx = -1
-        best_score = -1e9
+        best_score = -1e12
 
         for idx, pri in enumerate(result):
-            p_start = pri["start_ms"]
-            p_end = pri["end_ms"]
-            overlap = min(p_end, s_end) - max(p_start, s_start)
-            if overlap > 0:
-                score = overlap * 2.0 - abs(p_start - s_start) * 0.2
-                if score > best_score:
-                    best_score = score
-                    best_idx = idx
-            else:
-                p_mid = (p_start + p_end) / 2.0
-                dist = abs(p_mid - s_mid)
-                if dist <= 1200:
-                    score = -dist
+            p_start = int(pri["start_ms"])
+            p_end = int(pri["end_ms"])
+            start_diff = abs(p_start - s_start)
+            end_diff = abs(p_end - s_end)
+
+            if align_mode == "strict_time":
+                if start_diff <= tol and end_diff <= tol:
+                    score = -(start_diff + end_diff)
                     if score > best_score:
                         best_score = score
                         best_idx = idx
+            else:
+                overlap = min(p_end, s_end) - max(p_start, s_start)
+                if overlap > 0:
+                    score = overlap * 2.0 - start_diff * 0.2
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
+                else:
+                    p_mid = (p_start + p_end) / 2.0
+                    dist = abs(p_mid - s_mid)
+                    if dist <= tol:
+                        score = -dist
+                        if score > best_score:
+                            best_score = score
+                            best_idx = idx
 
         if best_idx >= 0:
-            existing = result[best_idx].get(lang_key, "").strip()
-            result[best_idx][lang_key] = f"{existing} {txt}".strip() if existing else txt
+            matched_count += 1
+            pri_row = result[best_idx]
+            existing = pri_row.get(lang_key, "").strip()
+            pri_row[lang_key] = f"{existing} {txt}".strip() if existing else txt
+
+            # Apply time_base rule!
+            p_start, p_end = int(pri_row["start_ms"]), int(pri_row["end_ms"])
+            if lang_key == "zh":
+                cn_s, cn_e, en_s, en_e = s_start, s_end, p_start, p_end
+            else:
+                cn_s, cn_e, en_s, en_e = p_start, p_end, s_start, s_end
+            ns, ne = _resolve_merged_times(cn_s, cn_e, en_s, en_e, time_base, p_start, p_end)
+            pri_row["start_ms"] = ns
+            pri_row["end_ms"] = ne
         else:
             unmatched_secondary.append(
                 {
@@ -676,7 +931,13 @@ def merge_two_subtitles(
 
     result.extend(unmatched_secondary)
     result.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
-    return reindex_subtitles(result)
+    final_list = reindex_subtitles(result)
+    if return_stats:
+        return final_list, {
+            "matched_count": matched_count,
+            "unmatched_secondary": len(unmatched_secondary),
+        }
+    return final_list
 
 
 def reindex_subtitles(subs: list[dict[str, Any]]) -> list[dict[str, Any]]:

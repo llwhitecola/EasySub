@@ -299,6 +299,7 @@
 
         <div class="table-actions">
           <input type="text" id="inpSearch" class="input-search" placeholder="🔍 搜索中文或英文台词…" />
+          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行（支持时间基准选择与预览报告）">🧲 合并表内中英行</button>
           <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键自动按语种纠正分栏">🔄 智能纠正中英分栏</button>
           <button class="btn btn-ghost btn-sm" id="btnClearAll" title="清空列表重新开始">🗑️ 清空列表</button>
         </div>
@@ -318,7 +319,7 @@
 
   <!-- Modal 1: Import / Merge / Paste Script Wizard -->
   <div class="modal-backdrop hidden" id="modalImport">
-    <div class="modal-card">
+    <div class="modal-card modal-lg">
       <div class="modal-header">
         <h3>📂 导入或智能合并双语字幕</h3>
         <button class="modal-close" data-close="modalImport">✕</button>
@@ -328,27 +329,70 @@
           <div class="action-card" id="cardImportReplace">
             <div class="ac-icon">📄</div>
             <div class="ac-title">打开已有字幕文件</div>
-            <div class="ac-desc">支持 .srt / .ass / .vtt / .txt。若文件本身已是双语，会自动拆分为左右中英两栏！</div>
+            <div class="ac-desc">支持 .srt / .ass / .vtt / .txt。已内置伪双语同轴自动识别，即使原文件把中英拆成上下两条相同时间的独立事件，也会自动合并进左右分栏！</div>
             <button class="btn btn-primary btn-block">选择字幕文件打开</button>
           </div>
 
           <div class="action-card" id="cardImportMerge">
             <div class="ac-icon">🧲</div>
-            <div class="ac-title">合并第二份单语字幕</div>
-            <div class="ac-desc">比如你先打开了英文字幕，再导入一份中文字幕（即使行数略有差异也能按时间轴智能对齐！）</div>
-            <div class="merge-opts">
-              <select id="selMergeAlign" class="input-sm">
-                <option value="time">按时间轴重叠智能对齐 (推荐)</option>
-                <option value="index">按行号第1句配第1句对齐</option>
-              </select>
+            <div class="ac-title">合并第二份单语字幕文件</div>
+            <div class="ac-desc">先打开一份英文(或中文)字幕，再导入另一份单语字幕智能合轴：</div>
+            <div class="form-grid-2">
+              <label>匹配算法
+                <select id="selMergeAlign" class="input-sm">
+                  <option value="time" selected>时间重叠智能匹配 (推荐)</option>
+                  <option value="strict_time">起止误差严格匹配</option>
+                  <option value="index">按行号逐句配对</option>
+                </select>
+              </label>
+              <label>合并后时间轴基准
+                <select id="selMergeTimeBase" class="input-sm">
+                  <option value="union" selected>取两者并集 (覆盖最长)</option>
+                  <option value="en">以英文行时间为准 (原盘轴推荐)</option>
+                  <option value="zh">以中文行时间为准</option>
+                  <option value="primary">保留第一份主字幕时间</option>
+                </select>
+              </label>
             </div>
+            <label style="font-size:11.5px;color:#94a3b8;display:flex;align-items:center;justify-content:space-between;">
+              <span>最大允许时间误差 (ms):</span>
+              <input type="number" id="inpMergeTolerance" class="input-sm" style="width:95px;" min="0" max="5000" step="50" value="800" />
+            </label>
             <button class="btn btn-ai btn-block" id="btnPickMergeFile">选择第二份字幕合并</button>
           </div>
         </div>
 
+        <!-- In-table Single-File Alternating / Unpaired CN+EN Merge Box (v4.1 Enhanced) -->
+        <div class="paste-box" id="secInternalMergeBox">
+          <div class="paste-title">🔀 表内单语行智能配对合并（将列表中独立分开的中、英文行合并成双语行，无需严格交替排列）</div>
+          <div class="form-grid-3">
+            <label>时间轴基准
+              <select id="selIntTimeBase" class="input-sm">
+                <option value="union" selected>取两者并集 (覆盖最长)</option>
+                <option value="zh">以中文行时间为准</option>
+                <option value="en">以英文行时间为准</option>
+              </select>
+            </label>
+            <label>时间匹配方式
+              <select id="selIntMatchMode" class="input-sm">
+                <option value="tolerance" selected>起止误差严格匹配 (精准推荐)</option>
+                <option value="overlap">时间段重叠智能匹配</option>
+              </select>
+            </label>
+            <label>允许时间误差 (ms)
+              <input type="number" id="inpIntTolerance" class="input-sm" min="0" max="3000" step="25" value="200" />
+            </label>
+          </div>
+          <div class="paste-footer" style="justify-content:flex-end;">
+            <button class="btn btn-ghost btn-sm" id="btnPreviewInternalMerge">🔍 仅生成预览报告 (不修改)</button>
+            <button class="btn btn-ai btn-sm" id="btnRunInternalMerge">⚡ 立即执行配对合并</button>
+          </div>
+          <pre id="mergeReportPre" class="merge-report-pre hidden"></pre>
+        </div>
+
         <div class="paste-box">
           <div class="paste-title">📝 或者：直接粘贴纯文本台词 / 译文剧本一键生成字幕行</div>
-          <textarea id="txtPasteScript" rows="5" placeholder="在此粘贴英文台词、中文台词，或“一句中文换行一句英文”的双语文本…&#10;导入后只需播放视频按 [F3] 和 [F4] 即可飞速完成打轴！"></textarea>
+          <textarea id="txtPasteScript" rows="4" placeholder="在此粘贴英文台词、中文台词，或“一句中文换行一句英文”的双语文本…&#10;导入后只需播放视频按 [F3] 和 [F4] 即可飞速完成打轴！"></textarea>
           <div class="paste-footer">
             <select id="selPasteMode" class="input-sm">
               <option value="auto_pair">智能识别 (中英交替自动成对 / 单语逐行)</option>

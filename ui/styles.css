@@ -1065,6 +1065,21 @@ input, textarea, select, button {
   flex-wrap: wrap;
 }
 
+.merge-report-pre {
+  background: #060911;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-height: 155px;
+  overflow-y: auto;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
 /* AI Modal */
 .ai-workflow-grid {
   display: grid;
