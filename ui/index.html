@@ -7,66 +7,80 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Top App Header & Step Wizard Toolbar -->
+  <!-- Sleek Studio Header -->
   <header class="topbar">
     <div class="brand">
-      <div class="brand-logo">ES</div>
-      <div>
-        <div class="brand-title">傻瓜双语字幕工坊 <span class="badge-pro">EasySub Studio</span></div>
-        <div class="brand-sub" id="mediaStatusText">演示模式 · 可直接体验样式与打轴，或拖入任意视频开始制作</div>
+      <div class="brand-logo">
+        <span class="logo-mark">ES</span>
+      </div>
+      <div class="brand-meta">
+        <div class="brand-title">
+          傻瓜双语字幕工坊
+          <span class="badge-pro">Studio v1.2</span>
+        </div>
+        <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
+          <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
+        </div>
       </div>
     </div>
 
-    <div class="wizard-actions">
-      <button class="btn btn-step" id="btnOpenVideo" title="支持 MP4, MKV, MOV, AVI, MP3, WAV 等，也可直接拖拽进窗口">
-        <span class="step-num">1</span> 🎬 打开视频
+    <!-- Center Segmented Action Dock -->
+    <nav class="nav-dock">
+      <button class="dock-btn" id="btnOpenVideo" title="支持 MP4, MKV, MOV, AVI, MP3, WAV 等，也可直接拖拽进窗口">
+        <span class="dock-icon">🎬</span>
+        <span>打开视频</span>
       </button>
-      <button class="btn btn-step" id="btnOpenImport" title="导入已有 SRT/ASS，或将两份单语字幕智能合并成双语">
-        <span class="step-num">2</span> 📂 导入/合并字幕
+      <button class="dock-btn" id="btnOpenImport" title="打开单/双语字幕、合并两份单语字幕或粘贴纯文本台词">
+        <span class="dock-icon">📂</span>
+        <span>导入 / 合轴</span>
       </button>
-      <button class="btn btn-ai" id="btnOpenAi" title="AI 自动听写视频语音 + 一键翻译双语字幕">
-        <span class="step-num">3</span> ✨ AI 自动听写/翻译
+      <button class="dock-btn dock-btn-ai" id="btnOpenAi" title="AI 自动听写视频语音 + 免配置极速双语翻译">
+        <span class="dock-icon">✨</span>
+        <span>AI 听写翻译</span>
       </button>
+      <button class="dock-btn" id="btnOpenSupTool" title="将本地 ASS 文件（可多选批量）或当前字幕压制为蓝光原盘 PGS (.sup) 图形字幕">
+        <span class="dock-icon">💿</span>
+        <span>ASS 转 SUP</span>
+      </button>
+    </nav>
 
-      <div class="divider-v"></div>
-
-      <div class="tool-cluster">
-        <button class="btn btn-ghost btn-sm" id="btnUndo" title="撤销 (Ctrl+Z)">↩ 撤销</button>
-        <button class="btn btn-ghost btn-sm" id="btnRedo" title="重做 (Ctrl+Y)">↪ 重做</button>
-        <div class="shift-group" title="整体平移全部字幕时间轴（解决字幕整体快了或慢了）">
-          <span class="shift-label">整体平移:</span>
-          <button class="btn btn-ghost btn-xs" data-shift="-500">-0.5s</button>
-          <button class="btn btn-ghost btn-xs" data-shift="-100">-0.1s</button>
-          <button class="btn btn-ghost btn-xs" data-shift="100">+0.1s</button>
-          <button class="btn btn-ghost btn-xs" data-shift="500">+0.5s</button>
-        </div>
+    <!-- Right History & Primary Export CTA -->
+    <div class="topbar-right">
+      <div class="history-pill">
+        <button class="icon-action" id="btnUndo" title="撤销上一步 (Ctrl+Z)">↩ 撤销</button>
+        <span class="pill-sep"></span>
+        <button class="icon-action" id="btnRedo" title="重做 (Ctrl+Y)">↪ 重做</button>
       </div>
 
-      <div class="divider-v"></div>
-
-      <button class="btn btn-step" id="btnOpenSupTool" title="将现有本地 ASS 文件（支持多选整季批量）或当前双语字幕直接压制成蓝光原盘 PGS (.sup) 图形字幕">
-        💿 ASS 转 SUP
-      </button>
-      <button class="btn btn-primary" id="btnOpenExport">
-        💾 导出 ASS / SUP / SRT
+      <button class="btn btn-export-cta" id="btnOpenExport">
+        <span>💾 导出字幕</span>
+        <span class="export-formats-hint">ASS · SUP · SRT</span>
       </button>
     </div>
   </header>
 
-  <!-- Main Workspace -->
-  <main class="workspace">
-    <!-- Upper Section: Video Preview (Left) + Foolproof Style Studio (Right) -->
-    <section class="upper-deck">
-      <!-- Left: 16:9 WYSIWYG Video Player -->
+  <!-- Main Studio Workspace -->
+  <main class="workspace" id="workspaceEl">
+    <!-- Upper Deck: 16:9 Cinema Stage (Left) + Visual Style Studio (Right) -->
+    <section class="upper-deck" id="upperDeck">
+      <!-- Left: 16:9 WYSIWYG Cinema Stage -->
       <div class="player-panel">
         <div class="video-stage-wrap" id="videoStageWrap">
           <div class="video-stage" id="videoStage">
             <video id="videoEl" playsinline preload="auto"></video>
 
-            <!-- Demo Backdrop shown before user loads a real video -->
-            <div class="demo-backdrop" id="demoBackdrop">
-              <div class="demo-scenery">
-                <div class="demo-pill">🎬 实时双语字幕效果预览画布（拖入视频文件即可替换）</div>
+            <!-- Interactive Demo Backdrop (with Scene Brightness Tester!) -->
+            <div class="demo-backdrop scene-dark" id="demoBackdrop">
+              <div class="scene-switcher" title="在未导入视频时，切换不同明暗背景测试字幕描边与清晰度">
+                <button class="scene-chip active" data-scene="scene-dark">🌙 暗调影院</button>
+                <button class="scene-chip" data-scene="scene-warm">🌆 暖色街景</button>
+                <button class="scene-chip" data-scene="scene-bright">☀️ 亮白雪景</button>
+              </div>
+
+              <div class="drop-hero-card" id="dropHeroCard">
+                <div class="drop-hero-icon">🎞️</div>
+                <div class="drop-hero-title">拖入视频或字幕文件开始制作</div>
+                <div class="drop-hero-sub">支持 MP4 / MKV / MOV / SRT / ASS · 点击此处也可选择视频</div>
               </div>
             </div>
 
@@ -80,49 +94,51 @@
           </div>
         </div>
 
-        <!-- Video Transport Controls -->
+        <!-- Cinema Transport Bar -->
         <div class="player-controls">
           <div class="transport-left">
-            <button class="btn btn-icon-main" id="btnPlayPause" title="播放 / 暂停 (F2)">▶ 播放</button>
-            <button class="btn btn-ghost btn-sm" id="btnBack2s" title="快退 2 秒">-2s</button>
-            <button class="btn btn-ghost btn-sm" id="btnFwd2s" title="快进 2 秒">+2s</button>
-            <button class="btn btn-ghost btn-sm" id="btnReplayCue" title="从当前选中字幕开头重播 (F5)">🎯 播本句 (F5)</button>
-            <label class="toggle-inline" title="反复循环播放当前选中的这一句，方便精修听写">
-              <input type="checkbox" id="chkLoopCue" />
+            <button class="btn btn-play-main" id="btnPlayPause" title="播放 / 暂停 (快捷键 F2 或空格)">▶ 播放</button>
+            <div class=" transport-Cluster">
+              <button class="btn btn-ghost btn-xs-pad" id="btnBack2s" title="快退 2 秒">-2s</button>
+              <button class="btn btn-ghost btn-xs-pad" id="btnFwd2s" title="快进 2 秒">+2s</button>
+              <button class="btn btn-ghost btn-xs-pad" id="btnReplayCue" title="从当前选中句开头重播 (F5)">🎯 播本句</button>
+            </div>
+            <label class="switch-label" title="循环播放当前选中的这一句，方便精听校对">
+              <input type="checkbox" class="ui-switch" id="chkLoopCue" />
               <span>单句循环</span>
             </label>
           </div>
 
           <div class="transport-right">
             <div class="time-readout">
-              <span id="curTimeLabel">00:00.00</span>
+              <span id="curTimeLabel" class="t-cur">00:00.00</span>
               <span class="time-sep">/</span>
-              <span id="durTimeLabel">00:18.00</span>
+              <span id="durTimeLabel" class="t-dur">00:18.00</span>
             </div>
             <select id="selPlaybackRate" class="select-compact" title="播放倍速">
-              <option value="0.75">0.75x 慢速听写</option>
-              <option value="1" selected>1.0x 正常倍速</option>
+              <option value="0.75">0.75x 慢速</option>
+              <option value="1" selected>1.0x 原速</option>
               <option value="1.25">1.25x 稍快</option>
-              <option value="1.5">1.5x 快速审片</option>
+              <option value="1.5">1.5x 审片</option>
             </select>
           </div>
         </div>
       </div>
 
-      <!-- Right: Visual Style Studio (No ASS Code Needed!) -->
+      <!-- Right: Visual Style Studio -->
       <aside class="style-panel">
         <div class="panel-tabs">
           <button class="tab-btn active" data-tab="presets">🎨 一键双语模板</button>
-          <button class="tab-btn" data-tab="custom">🛠️ 字体颜色微调</button>
+          <button class="tab-btn" data-tab="custom">🛠️ 字体颜色精调</button>
         </div>
 
-        <!-- Tab 1: One-Click Presets & Quick Layout -->
+        <!-- Tab 1: Curated Presets + Quick Layout -->
         <div class="tab-body active" id="tab-presets">
           <div class="preset-grid" id="presetGrid"></div>
 
           <div class="quick-layout-box">
             <div class="quick-row">
-              <span class="q-label">上下语种顺序</span>
+              <span class="q-label">双语上下位置</span>
               <div class="seg-control" id="orderSeg">
                 <button class="seg-btn active" data-order="zh_top">上中下英</button>
                 <button class="seg-btn" data-order="en_top">上英下中</button>
@@ -130,7 +146,7 @@
             </div>
 
             <div class="quick-row">
-              <span class="q-label">预览/导出显示</span>
+              <span class="q-label">画面显示模式</span>
               <div class="seg-control" id="langModeSeg">
                 <button class="seg-btn active" data-mode="bilingual">中英双语</button>
                 <button class="seg-btn" data-mode="zh_only">仅中文</button>
@@ -139,21 +155,22 @@
             </div>
 
             <div class="quick-row">
-              <span class="q-label">半透明黑底盒</span>
-              <label class="switch-row">
-                <input type="checkbox" id="chkBoxMode" />
-                <span>开启沉浸衬底条 (不惧亮白背景)</span>
+              <span class="q-label">纪录片黑底盒</span>
+              <label class="switch-label">
+                <input type="checkbox" class="ui-switch" id="chkBoxMode" />
+                <span>开启半透明暗黑衬底</span>
               </label>
             </div>
 
-            <div class="quick-row">
-              <span class="q-label">距离底部高度 <b id="lblMarginV">15</b></span>
-              <input type="range" id="rngMarginV" min="5" max="180" value="15" class="slider" />
-            </div>
-
-            <div class="quick-row">
-              <span class="q-label">柔边羽化 (\blur) <b id="lblBlur">2</b></span>
-              <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
+            <div class="quick-sliders-2">
+              <label class="mini-slider-field">
+                <div class="ms-head"><span>底部高度</span><b id="lblMarginV">15</b></div>
+                <input type="range" id="rngMarginV" min="5" max="180" value="15" class="slider" />
+              </label>
+              <label class="mini-slider-field">
+                <div class="ms-head"><span>柔边羽化 (\blur)</span><b id="lblBlur">2</b></div>
+                <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
+              </label>
             </div>
           </div>
         </div>
@@ -161,9 +178,15 @@
         <!-- Tab 2: Detailed ZH & EN Font/Size/Color/Stroke Controls -->
         <div class="tab-body" id="tab-custom">
           <div class="style-lang-card">
-            <div class="lang-card-header">🇨🇳 中文字幕样式</div>
+            <div class="lang-card-header">
+              <span>🇨🇳 中文字幕样式</span>
+              <div class="inline-checks">
+                <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhBold" checked /><span>粗体</span></label>
+                <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhItalic" /><span>斜体</span></label>
+              </div>
+            </div>
             <div class="form-grid-2">
-              <label>字体
+              <label>字体家族
                 <select id="zhFont" class="input-sm">
                   <option value="WenQuanYi Micro Hei" selected>文泉驿微米黑 (美剧默认)</option>
                   <option value="Microsoft YaHei">微软雅黑 (清晰百搭)</option>
@@ -175,7 +198,7 @@
                   <option value="DengXian">等线 (现代极简)</option>
                 </select>
               </label>
-              <label>字号 (<span id="lblZhSize">70</span>)
+              <label>字号大小 (<b id="lblZhSize">70</b>)
                 <input type="range" id="zhSize" min="26" max="96" value="70" class="slider" />
               </label>
               <label>文字颜色
@@ -190,26 +213,28 @@
                   <span id="lblZhOutlineColor">#000000</span>
                 </div>
               </label>
-              <label>描边粗细 (<span id="lblZhOutline">0.8</span>)
+              <label>描边粗细 (<b id="lblZhOutline">0.8</b>)
                 <input type="range" id="zhOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
               </label>
-              <label>阴影深度 (<span id="lblZhShadow">0.7</span>)
+              <label>阴影深度 (<b id="lblZhShadow">0.7</b>)
                 <input type="range" id="zhShadow" min="0" max="6" step="0.1" value="0.7" class="slider" />
               </label>
-              <label>横向字宽 (<span id="lblZhScaleX">93</span>%)
+              <label class="span-2">横向字宽比例 (<b id="lblZhScaleX">93</b>%)
                 <input type="range" id="zhScaleX" min="75" max="115" step="1" value="93" class="slider" />
               </label>
-              <div class="inline-checks" style="padding-top:16px;">
-                <label><input type="checkbox" id="zhBold" checked /> 粗体</label>
-                <label><input type="checkbox" id="zhItalic" /> 斜体</label>
-              </div>
             </div>
           </div>
 
           <div class="style-lang-card">
-            <div class="lang-card-header">🇬🇧 英文字幕样式</div>
+            <div class="lang-card-header">
+              <span>🇬🇧 英文字幕样式</span>
+              <div class="inline-checks">
+                <label class="switch-label"><input type="checkbox" class="ui-switch" id="enBold" checked /><span>粗体</span></label>
+                <label class="switch-label"><input type="checkbox" class="ui-switch" id="enItalic" /><span>斜体</span></label>
+              </div>
+            </div>
             <div class="form-grid-2">
-              <label>字体
+              <label>字体家族
                 <select id="enFont" class="input-sm">
                   <option value="ITCAvantGardePro-Demi" selected>ITCAvantGardePro-Demi (美剧默认)</option>
                   <option value="Cronos Pro">Cronos Pro (天空英语)</option>
@@ -221,7 +246,7 @@
                   <option value="WenQuanYi Micro Hei">文泉驿微米黑</option>
                 </select>
               </label>
-              <label>字号 (<span id="lblEnSize">47</span>)
+              <label>字号大小 (<b id="lblEnSize">47</b>)
                 <input type="range" id="enSize" min="18" max="76" value="47" class="slider" />
               </label>
               <label>文字颜色
@@ -236,52 +261,60 @@
                   <span id="lblEnOutlineColor">#040000</span>
                 </div>
               </label>
-              <label>描边粗细 (<span id="lblEnOutline">0.8</span>)
+              <label>描边粗细 (<b id="lblEnOutline">0.8</b>)
                 <input type="range" id="enOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
               </label>
-              <label>阴影深度 (<span id="lblEnShadow">0.8</span>)
+              <label>阴影深度 (<b id="lblEnShadow">0.8</b>)
                 <input type="range" id="enShadow" min="0" max="6" step="0.1" value="0.8" class="slider" />
               </label>
-              <label>横向字宽 (<span id="lblEnScaleX">95</span>%)
+              <label class="span-2">横向字宽比例 (<b id="lblEnScaleX">95</b>%)
                 <input type="range" id="enScaleX" min="75" max="115" step="1" value="95" class="slider" />
               </label>
-              <div class="inline-checks" style="padding-top:16px;">
-                <label><input type="checkbox" id="enBold" checked /> 粗体</label>
-                <label><input type="checkbox" id="enItalic" /> 斜体</label>
-              </div>
             </div>
           </div>
         </div>
       </aside>
     </section>
 
-    <!-- Middle Section: Foolproof 1-Click Timing Bar & Audio Waveform Timeline -->
+    <!-- Interactive Splitter Handle (Drag vertically to resize video vs subtitle table!) -->
+    <div class="deck-splitter" id="deckSplitter" title="上下拖动可自由调节视频预览区与字幕表格高度比例">
+      <div class="splitter-grip"></div>
+    </div>
+
+    <!-- Middle Section: 1-Click Timing Bar & Symmetrical Stereo Waveform -->
     <section class="timeline-deck">
       <div class="timing-toolbar">
         <div class="timing-hotkeys">
-          <span class="section-tag">⚡ 傻瓜打轴器</span>
-          <button class="btn btn-timing-start" id="btnMarkStart" title="把当前画面时间设为本句开始时间 (打字时也可按 F3)">
-            <b>[ F3 ]</b> 设为本句开始
+          <span class="section-tag">⚡ 极速打轴</span>
+          <button class="btn btn-timing-start" id="btnMarkStart" title="把当前播放位置设为选中句的开始时间 (打字时也可直接按 F3)">
+            <kbd>F3</kbd> 设为本句开始
           </button>
-          <button class="btn btn-timing-end" id="btnMarkEndNext" title="把当前画面时间设为本句结束时间，并自动跳到下一句 (打字时也可按 F4)">
-            <b>[ F4 ]</b> 设为结束并跳下一句 ⏭
+          <button class="btn btn-timing-end" id="btnMarkEndNext" title="把当前播放位置设为选中句的结束时间，并自动跳到下一句 (打字时也可直接按 F4)">
+            <kbd>F4</kbd> 设为结束并下一句 ⏭
           </button>
-          <button class="btn btn-ghost btn-sm" id="btnAddCueAtPlayhead" title="在当前视频位置新增一句空白双语字幕">
-            ➕ 在此处新增一句
+          <button class="btn btn-ghost btn-sm" id="btnAddCueAtPlayhead" title="在当前指针位置新建一行空白字幕">
+            ➕ 新建一句
           </button>
         </div>
 
         <div class="timeline-tools-right">
-          <span class="hint-text">提示：点击波形可跳转进度，拖拽色块左右边缘可直接微调起止时间</span>
-          <label class="zoom-wrap">
-            <span>缩放</span>
-            <input type="range" id="rngZoom" min="40" max="260" value="100" class="slider slider-xs" />
+          <div class="shift-group" title="整体平移全部字幕时间轴（解决字幕整体快了或慢了）">
+            <span class="shift-label">整体平移</span>
+            <button class="shift-btn" data-shift="-500">-0.5s</button>
+            <button class="shift-btn" data-shift="-100">-0.1s</button>
+            <button class="shift-btn" data-shift="100">+0.1s</button>
+            <button class="shift-btn" data-shift="500">+0.5s</button>
+          </div>
+
+          <label class="zoom-wrap" title="缩放声波时间轴比例">
+            <span>🔍 缩放</span>
+            <input type="range" id="rngZoom" min="40" max="260" value="105" class="slider slider-xs" />
           </label>
         </div>
       </div>
 
       <div class="waveform-scroll" id="waveformScroll">
-        <canvas id="waveformCanvas" height="84"></canvas>
+        <canvas id="waveformCanvas" height="86"></canvas>
       </div>
     </section>
 
@@ -290,32 +323,49 @@
       <div class="table-toolbar">
         <div class="table-stats">
           <span id="subCountBadge" class="stat-pill">共 0 句</span>
-          <span id="bilingualRateBadge" class="stat-pill stat-pill-sub">双语完整率 100%</span>
-          <label class="toggle-inline">
-            <input type="checkbox" id="chkSeekOnClick" checked />
-            <span>点击行自动定位视频画面</span>
+          <span id="bilingualRateBadge" class="stat-pill stat-pill-sub">双语完整 100%</span>
+          <label class="switch-label" style="margin-left:4px;">
+            <input type="checkbox" class="ui-switch" id="chkSeekOnClick" checked />
+            <span>点选行自动跳转画面</span>
           </label>
         </div>
 
         <div class="table-actions">
-          <input type="text" id="inpSearch" class="input-search" placeholder="🔍 搜索中文或英文台词…" />
-          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行（支持时间基准选择与预览报告）">🧲 合并表内中英行</button>
-          <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键自动按语种纠正分栏">🔄 智能纠正中英分栏</button>
-          <button class="btn btn-ghost btn-sm" id="btnClearAll" title="清空列表重新开始">🗑️ 清空列表</button>
+          <div class="search-box-wrap">
+            <input type="text" id="inpSearch" class="input-search" placeholder="搜索中文或英文台词…" />
+          </div>
+          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行">🧲 合并表内中英行</button>
+          <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键按语种自动归位">🔄 纠正中英分栏</button>
+          <button class="btn btn-ghost btn-sm" id="btnClearAll" title="清空当前字幕列表（可 Ctrl+Z 撤销）">🗑️ 清空</button>
         </div>
       </div>
 
       <div class="sub-table-header">
         <div class="col-idx">#</div>
-        <div class="col-time">时间轴 (开始 → 结束)</div>
-        <div class="col-zh">🇨🇳 中文台词 (回车跳下一句)</div>
-        <div class="col-en">🇬🇧 英文台词 (回车跳下一句)</div>
+        <div class="col-time">时间轴 · 时长</div>
+        <div class="col-zh">🇨🇳 中文台词 <span class="col-hint">Enter 跳下一句</span></div>
+        <div class="col-en">🇬🇧 英文台词 <span class="col-hint">Enter 跳下一句</span></div>
         <div class="col-ops">快捷操作</div>
       </div>
 
       <div class="sub-table-body" id="subTableBody"></div>
     </section>
   </main>
+
+  <!-- Studio Shortcut Cheat-Sheet Status Footer -->
+  <footer class="statusbar">
+    <div class="status-left">
+      <span id="activePresetFooter">🎨 当前模板：美剧双语经典 (默认)</span>
+    </div>
+    <div class="status-shortcuts">
+      <span><kbd>F2</kbd> 播放/暂停</span>
+      <span><kbd>F3</kbd> 设开始</span>
+      <span><kbd>F4</kbd> 设结束跳下句</span>
+      <span><kbd>F5</kbd> 重播本句</span>
+      <span><kbd>Enter</kbd> 跳下行同栏</span>
+      <span><kbd>Ctrl+Z</kbd> 撤销</span>
+    </div>
+  </footer>
 
   <!-- Modal 1: Import / Merge / Paste Script Wizard -->
   <div class="modal-backdrop hidden" id="modalImport">
@@ -329,7 +379,7 @@
           <div class="action-card" id="cardImportReplace">
             <div class="ac-icon">📄</div>
             <div class="ac-title">打开已有字幕文件</div>
-            <div class="ac-desc">支持 .srt / .ass / .vtt / .txt。已内置伪双语同轴自动识别，即使原文件把中英拆成上下两条相同时间的独立事件，也会自动合并进左右分栏！</div>
+            <div class="ac-desc">支持 .srt / .ass / .vtt / .txt。内置伪双语同轴自动识别，即使原文件把中英拆成两条同时间独立事件，也会自动合并进左右分栏！</div>
             <button class="btn btn-primary btn-block">选择字幕文件打开</button>
           </div>
 
@@ -354,7 +404,7 @@
                 </select>
               </label>
             </div>
-            <label style="font-size:11.5px;color:#94a3b8;display:flex;align-items:center;justify-content:space-between;">
+            <label class="inline-num-row">
               <span>最大允许时间误差 (ms):</span>
               <input type="number" id="inpMergeTolerance" class="input-sm" style="width:95px;" min="0" max="5000" step="50" value="800" />
             </label>
@@ -362,7 +412,7 @@
           </div>
         </div>
 
-        <!-- In-table Single-File Alternating / Unpaired CN+EN Merge Box (v4.1 Enhanced) -->
+        <!-- In-table Single-File Alternating / Unpaired CN+EN Merge Box -->
         <div class="paste-box" id="secInternalMergeBox">
           <div class="paste-title">🔀 表内单语行智能配对合并（将列表中独立分开的中、英文行合并成双语行，无需严格交替排列）</div>
           <div class="form-grid-3">
@@ -392,16 +442,16 @@
 
         <div class="paste-box">
           <div class="paste-title">📝 或者：直接粘贴纯文本台词 / 译文剧本一键生成字幕行</div>
-          <textarea id="txtPasteScript" rows="4" placeholder="在此粘贴英文台词、中文台词，或“一句中文换行一句英文”的双语文本…&#10;导入后只需播放视频按 [F3] 和 [F4] 即可飞速完成打轴！"></textarea>
+          <textarea id="txtPasteScript" rows="3" placeholder="在此粘贴英文台词、中文台词，或“一句中文换行一句英文”的双语文本…&#10;导入后只需播放视频按 [F3] 和 [F4] 即可飞速完成打轴！"></textarea>
           <div class="paste-footer">
             <select id="selPasteMode" class="input-sm">
               <option value="auto_pair">智能识别 (中英交替自动成对 / 单语逐行)</option>
               <option value="zh_only">全部作为中文台词</option>
               <option value="en_only">全部作为英文台词</option>
             </select>
-            <label class="toggle-inline">
-              <input type="checkbox" id="chkPasteMerge" />
-              <span>逐行填入当前已有字幕列表（不覆盖原时间轴）</span>
+            <label class="switch-label">
+              <input type="checkbox" class="ui-switch" id="chkPasteMerge" />
+              <span>逐行填入当前已有列表（不覆盖原时间轴）</span>
             </label>
             <button class="btn btn-step" id="btnConfirmPaste">导入粘贴文本</button>
           </div>
@@ -436,7 +486,6 @@
           </label>
         </div>
 
-        <!-- Speech Recognition Settings -->
         <div class="ai-config-section" id="secAsrConfig">
           <div class="sec-heading">🎙️ 语音识别设置 (Whisper)</div>
           <div class="form-grid-3">
@@ -476,7 +525,6 @@
           </div>
         </div>
 
-        <!-- Translation Settings -->
         <div class="ai-config-section" id="secTransConfig">
           <div class="sec-heading">🌐 双语翻译设置</div>
           <div class="form-grid-3">
@@ -492,9 +540,9 @@
                 <option value="llm">🧠 AI 大模型结合上下文影视精翻 (DeepSeek/OpenAI等)</option>
               </select>
             </label>
-            <label class="check-bottom">
-              <input type="checkbox" id="aiTransOverwrite" />
-              <span>覆盖已有译文（默认仅补全空缺行）</span>
+            <label class="check-bottom switch-label">
+              <input type="checkbox" class="ui-switch" id="aiTransOverwrite" />
+              <span>覆盖已有译文（默认仅补全空行）</span>
             </label>
           </div>
 
@@ -511,7 +559,6 @@
           </div>
         </div>
 
-        <!-- Progress Indicator -->
         <div class="ai-progress-box hidden" id="aiProgressBox">
           <div class="ai-prog-label" id="aiProgressText">正在准备任务…</div>
           <div class="ai-prog-track">
@@ -527,7 +574,7 @@
     </div>
   </div>
 
-  <!-- Modal 3: Export ASS / SRT -->
+  <!-- Modal 3: Export ASS / SUP / SRT -->
   <div class="modal-backdrop hidden" id="modalExport">
     <div class="modal-card">
       <div class="modal-header">
@@ -539,7 +586,7 @@
           <div class="export-card recommended" data-fmt="ass" data-lang="bilingual">
             <div>
               <div class="exp-title">🌟 导出 ASS 影视特效双语字幕 <span class="tag-rec">强烈推荐</span></div>
-              <div class="exp-desc">100% 保留你在右侧调好的中英文字体、大小对比、颜色、描边阴影与柔边羽化，PotPlayer / VLC / MPV 完美兼容且多行绝不重叠！</div>
+              <div class="exp-desc">100% 保留你在右侧调好的中英文字体、窄字宽、颜色、描边阴影与柔边羽化，PotPlayer / VLC / MPV 完美兼容且多行绝不重叠！</div>
             </div>
             <button class="btn btn-primary">导出双语 .ASS</button>
           </div>
@@ -555,18 +602,18 @@
           <div class="export-card" data-fmt="srt" data-lang="bilingual">
             <div>
               <div class="exp-title">📄 导出 SRT 通用双语字幕</div>
-              <div class="exp-desc">纯文本时间轴双语格式，兼容所有老式电视、手机播放器、B站/YouTube 外挂字幕上传。</div>
+              <div class="exp-desc">纯文本时间轴双语格式，兼容所有电视、手机播放器及视频平台外挂字幕上传。</div>
             </div>
             <button class="btn btn-step">导出双语 .SRT</button>
           </div>
 
           <div class="export-sub-row">
-            <span>只需要单语文件？也可以单独导出：</span>
+            <span>单独导出单语或保存工程：</span>
             <div class="export-mini-btns">
               <button class="btn btn-ghost btn-sm" data-fmt="srt" data-lang="zh_only">仅中文 .SRT</button>
               <button class="btn btn-ghost btn-sm" data-fmt="srt" data-lang="en_only">仅英文 .SRT</button>
               <button class="btn btn-ghost btn-sm" data-fmt="ass" data-lang="zh_only">仅中文 .ASS</button>
-              <button class="btn btn-ghost btn-sm" data-fmt="project" data-lang="bilingual">💾 保存项目工程 (.json)</button>
+              <button class="btn btn-ghost btn-sm" data-fmt="project" data-lang="bilingual">💾 保存项目 (.json)</button>
             </div>
           </div>
         </div>

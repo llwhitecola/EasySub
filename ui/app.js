@@ -271,7 +271,10 @@ function togglePlayPause() {
 }
 
 function syncPlayButtonUI() {
-  el.btnPlayPause.textContent = isPlaying() ? "⏸ 暂停" : "▶ 播放";
+  const playing = isPlaying();
+  el.btnPlayPause.textContent = playing ? "⏸ 暂停" : "▶ 播放";
+  const hero = document.getElementById("dropHeroCard");
+  if (hero) hero.classList.toggle("faded", playing);
 }
 
 function demoLoopTick(now) {
@@ -505,18 +508,27 @@ function ensureSelectOption(selectEl, val) {
 
 function renderPresetCards() {
   el.presetGrid.innerHTML = "";
+  const footerEl = document.getElementById("activePresetFooter");
+
   state.presets.forEach((p) => {
+    const isActive = p.id === state.activePresetId;
+    if (isActive && footerEl) {
+      footerEl.textContent = `🎨 当前模板：${p.name}`;
+    }
     const card = document.createElement("div");
-    card.className = `preset-card ${p.id === state.activePresetId ? "active" : ""}`;
+    card.className = `preset-card ${isActive ? "active" : ""}`;
     const topIsZh = p.order !== "en_top";
     const firstColor = topIsZh ? p.zh.color : p.en.color;
     const secondColor = topIsZh ? p.en.color : p.zh.color;
-    const boxBg = p.box_mode ? hexToRgba(p.box_color, p.box_opacity) : "#060911";
+    const boxBg = p.box_mode
+      ? hexToRgba(p.box_color, p.box_opacity)
+      : "linear-gradient(180deg, #0d1526 0%, #060911 100%)";
 
     card.innerHTML = `
+      ${isActive ? '<span class="preset-badge-active">当前</span>' : ""}
       <div class="preset-preview-mini" style="background:${boxBg}">
-        <div style="color:${firstColor};font-weight:700;font-size:12px;">${topIsZh ? "示例双语字幕效果" : "Cinema Subtitle"}</div>
-        <div style="color:${secondColor};font-size:10px;">${topIsZh ? "Cinema Subtitle" : "示例双语字幕效果"}</div>
+        <div style="color:${firstColor};font-weight:700;font-size:12px;text-shadow:0 1px 2px #000;">${topIsZh ? "美剧双语字幕预览" : "Cinema Subtitle"}</div>
+        <div style="color:${secondColor};font-size:10px;text-shadow:0 1px 2px #000;">${topIsZh ? "Cinema Subtitle" : "美剧双语字幕预览"}</div>
       </div>
       <div class="preset-name">${p.name}</div>
       <div class="preset-desc">${p.desc}</div>
@@ -692,11 +704,10 @@ function drawWaveform() {
   const scrollWrap = el.waveformScroll;
   const totalSec = getTimelineTotalDurationSec();
   const desiredW = Math.max(scrollWrap.clientWidth, Math.ceil(totalSec * state.pxPerSec));
-  // Cap canvas width at 32000px to stay comfortably inside GPU texture limits
   const maxCanvasW = 32000;
   const effectivePxPerSec = desiredW > maxCanvasW ? maxCanvasW / totalSec : state.pxPerSec;
   const width = Math.max(scrollWrap.clientWidth, Math.ceil(totalSec * effectivePxPerSec));
-  const height = 84;
+  const height = 86;
 
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -704,41 +715,56 @@ function drawWaveform() {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, width, height);
 
-  // Background
-  ctx.fillStyle = "#070b14";
+  // Track background
+  ctx.fillStyle = "#060912";
   ctx.fillRect(0, 0, width, height);
 
   // Top ruler band
-  ctx.fillStyle = "#0d1424";
+  ctx.fillStyle = "#0b1120";
   ctx.fillRect(0, 0, width, 18);
+  ctx.fillStyle = "rgba(148, 163, 184, 0.12)";
+  ctx.fillRect(0, 18, width, 1);
+
+  // Center zero-axis line
+  const midY = 53;
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.12)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, midY + 0.5);
+  ctx.lineTo(width, midY + 0.5);
+  ctx.stroke();
 
   // Time ticks
   const stepSec = effectivePxPerSec >= 110 ? 1 : effectivePxPerSec >= 55 ? 2 : 5;
   ctx.font = "10px Consolas, monospace";
   ctx.fillStyle = "#64748b";
-  ctx.strokeStyle = "#1e293b";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.08)";
 
   for (let s = 0; s <= totalSec; s += stepSec) {
     const x = Math.round(s * effectivePxPerSec) + 0.5;
     ctx.beginPath();
-    ctx.moveTo(x, 14);
+    ctx.moveTo(x, 15);
     ctx.lineTo(x, height);
     ctx.stroke();
 
     const mins = Math.floor(s / 60);
     const secs = s % 60;
-    ctx.fillText(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`, x + 3, 12);
+    ctx.fillText(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`, x + 4, 12.5);
   }
 
-  // Audio waveform peaks
+  // Symmetrical gradient audio waveform
   const peaks = state.waveform?.peaks || [];
   const pps = state.waveform?.peaks_per_sec || 25;
   if (peaks.length > 0) {
-    const midY = 52;
     const maxAmp = 28;
-    ctx.fillStyle = "rgba(56, 189, 248, 0.36)";
+    const waveGrad = ctx.createLinearGradient(0, midY - maxAmp, 0, midY + maxAmp);
+    waveGrad.addColorStop(0, "rgba(129, 140, 248, 0.52)");
+    waveGrad.addColorStop(0.5, "rgba(56, 189, 248, 0.42)");
+    waveGrad.addColorStop(1, "rgba(129, 140, 248, 0.52)");
+    ctx.fillStyle = waveGrad;
+
     const stepPx = Math.max(2, effectivePxPerSec / pps);
+    const barW = Math.max(1.4, stepPx - 0.8);
     const visibleStartSec = Math.max(0, scrollWrap.scrollLeft / effectivePxPerSec - 2);
     const visibleEndSec = (scrollWrap.scrollLeft + scrollWrap.clientWidth) / effectivePxPerSec + 2;
     const iStart = Math.max(0, Math.floor(visibleStartSec * pps));
@@ -748,53 +774,55 @@ function drawWaveform() {
       const sec = i / pps;
       const x = sec * effectivePxPerSec;
       const h = Math.max(2, (peaks[i] / 100) * maxAmp * 2);
-      ctx.fillRect(x, midY - h / 2, Math.max(1.5, stepPx - 0.6), h);
+      ctx.fillRect(x, midY - h / 2, barW, h);
     }
   }
 
-  // Subtitle regions
+  // Subtitle regions (glass pills with top accent bar)
   state.subtitles.forEach((cue, idx) => {
     const x1 = (cue.start_ms / 1000) * effectivePxPerSec;
     const x2 = Math.max(x1 + 6, (cue.end_ms / 1000) * effectivePxPerSec);
     const w = x2 - x1;
     const isSel = idx === state.selectedIdx;
 
-    ctx.fillStyle = isSel ? "rgba(59, 130, 246, 0.34)" : "rgba(139, 92, 246, 0.19)";
-    ctx.strokeStyle = isSel ? "#60a5fa" : "rgba(167, 139, 250, 0.55)";
-    ctx.lineWidth = isSel ? 1.6 : 1;
+    ctx.fillStyle = isSel ? "rgba(37, 99, 235, 0.32)" : "rgba(99, 102, 241, 0.16)";
+    ctx.strokeStyle = isSel ? "#60a5fa" : "rgba(148, 163, 184, 0.35)";
+    ctx.lineWidth = isSel ? 1.5 : 1;
 
     ctx.beginPath();
-    ctx.roundRect(x1, 21, w, 58, 4);
+    ctx.roundRect(x1, 22, w, 58, 5);
     ctx.fill();
     ctx.stroke();
 
-    // Drag handles visual indicator on selected cue
+    // Top accent strip
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x1, 22, w, 58, 5);
+    ctx.clip();
+    ctx.fillStyle = isSel ? "#3b82f6" : "rgba(139, 92, 246, 0.55)";
+    ctx.fillRect(x1, 22, w, 3);
+
     if (isSel) {
       ctx.fillStyle = "#93c5fd";
-      ctx.fillRect(x1, 21, 3, 58);
-      ctx.fillRect(x2 - 3, 21, 3, 58);
+      ctx.fillRect(x1, 22, 3, 58);
+      ctx.fillRect(x2 - 3, 22, 3, 58);
     }
 
-    // Text preview inside block
-    if (w > 26) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x1 + 4, 22, w - 8, 56);
-      ctx.clip();
+    if (w > 28) {
       ctx.fillStyle = "#f8fafc";
-      ctx.font = "bold 11px 'Microsoft YaHei', sans-serif";
+      ctx.font = "bold 11px 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif";
       const label = cue.zh || cue.en || `#${cue.id}`;
-      ctx.fillText(`#${cue.id} ${label}`, x1 + 6, 37);
+      ctx.fillText(`#${cue.id} ${label}`, x1 + 6, 40);
       if (cue.zh && cue.en) {
         ctx.fillStyle = "#cbd5e1";
         ctx.font = "10px 'Segoe UI', sans-serif";
-        ctx.fillText(cue.en, x1 + 6, 53);
+        ctx.fillText(cue.en, x1 + 6, 56);
       }
-      ctx.restore();
     }
+    ctx.restore();
   });
 
-  // Playhead needle
+  // Glowing Playhead needle + live timecode badge
   const playX = (state.currentTimeMs / 1000) * effectivePxPerSec;
   ctx.strokeStyle = "#f43f5e";
   ctx.lineWidth = 2;
@@ -803,13 +831,16 @@ function drawWaveform() {
   ctx.lineTo(playX, height);
   ctx.stroke();
 
-  ctx.fillStyle = "#f43f5e";
+  const tcText = formatDisplayTime(state.currentTimeMs);
+  ctx.font = "bold 10px Consolas, monospace";
+  const badgeW = ctx.measureText(tcText).width + 10;
+  const badgeX = Math.max(2, Math.min(width - badgeW - 2, playX - badgeW / 2));
+  ctx.fillStyle = "#e11d48";
   ctx.beginPath();
-  ctx.moveTo(playX - 5, 0);
-  ctx.lineTo(playX + 5, 0);
-  ctx.lineTo(playX, 8);
-  ctx.closePath();
+  ctx.roundRect(badgeX, 2, badgeW, 14, 4);
   ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(tcText, badgeX + 5, 12.5);
 }
 
 function getEffectivePxPerSec() {
@@ -1030,6 +1061,10 @@ function highlightPlayingRow() {
   });
 }
 
+function formatDurSec(startMs, endMs) {
+  return `${Math.max(0, (endMs - startMs) / 1000).toFixed(1)}s`;
+}
+
 function syncSingleRowTimeInputs(idx) {
   const row = el.subTableBody.querySelector(`.sub-row[data-idx="${idx}"]`);
   if (!row) return;
@@ -1037,6 +1072,12 @@ function syncSingleRowTimeInputs(idx) {
   const inputs = row.querySelectorAll(".time-input");
   if (inputs[0]) inputs[0].value = formatDisplayTime(cue.start_ms);
   if (inputs[1]) inputs[1].value = formatDisplayTime(cue.end_ms);
+  const durEl = row.querySelector(".dur-badge");
+  if (durEl) {
+    const durMs = cue.end_ms - cue.start_ms;
+    durEl.textContent = formatDurSec(cue.start_ms, cue.end_ms);
+    durEl.classList.toggle("warn", durMs < 750);
+  }
 }
 
 function renderTable() {
@@ -1053,6 +1094,7 @@ function renderTable() {
     const row = document.createElement("div");
     row.className = `sub-row ${idx === state.selectedIdx ? "selected" : ""}`;
     row.dataset.idx = idx;
+    const durMs = cue.end_ms - cue.start_ms;
 
     row.innerHTML = `
       <div class="col-idx">${cue.id}</div>
@@ -1060,6 +1102,7 @@ function renderTable() {
         <input type="text" class="time-input t-start" value="${formatDisplayTime(cue.start_ms)}" title="开始时间 (格式 分:秒.毫秒)" />
         <span class="time-arrow">→</span>
         <input type="text" class="time-input t-end" value="${formatDisplayTime(cue.end_ms)}" title="结束时间" />
+        <span class="dur-badge ${durMs < 750 ? "warn" : ""}" title="本句持续时长">${formatDurSec(cue.start_ms, cue.end_ms)}</span>
       </div>
       <div>
         <input type="text" class="sub-input zh-inp" placeholder="输入中文台词…" />
@@ -1111,6 +1154,7 @@ function renderTable() {
       if (parsed !== null && parsed > cue.start_ms) {
         pushUndoSnapshot();
         cue.end_ms = parsed;
+        syncSingleRowTimeInputs(idx);
         updateSubtitleOverlay();
         drawWaveform();
       } else {
@@ -1901,11 +1945,65 @@ async function initBootstrap() {
   drawWaveform();
 }
 
+function bindSceneAndSplitter() {
+  // Demo Scene Brightness Tester (Dark / Warm / Bright snow)
+  document.querySelectorAll(".scene-chip").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".scene-chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      el.demoBackdrop.classList.remove("scene-dark", "scene-warm", "scene-bright");
+      el.demoBackdrop.classList.add(chip.dataset.scene);
+    });
+  });
+
+  // Click empty-stage hero card or header status pill to open video
+  document.getElementById("dropHeroCard")?.addEventListener("click", () => {
+    document.getElementById("btnOpenVideo")?.click();
+  });
+  el.mediaStatusText?.addEventListener("click", () => {
+    document.getElementById("btnOpenVideo")?.click();
+  });
+
+  // Interactive Vertical Splitter for resizing Video/Style Deck vs Table Deck
+  const splitter = document.getElementById("deckSplitter");
+  const upperDeck = document.getElementById("upperDeck");
+  if (!splitter || !upperDeck) return;
+
+  let resizing = false;
+  let startY = 0;
+  let startH = 0;
+
+  splitter.addEventListener("mousedown", (e) => {
+    resizing = true;
+    startY = e.clientY;
+    startH = upperDeck.getBoundingClientRect().height;
+    splitter.classList.add("dragging");
+    document.body.style.cursor = "row-resize";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!resizing) return;
+    const maxH = Math.floor(window.innerHeight * 0.62);
+    const nextH = Math.max(235, Math.min(maxH, startH + (e.clientY - startY)));
+    upperDeck.style.height = `${nextH}px`;
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!resizing) return;
+    resizing = false;
+    splitter.classList.remove("dragging");
+    document.body.style.cursor = "";
+  });
+}
+
 function init() {
   bindStyleEvents();
   bindWaveformEvents();
   bindModalsAndTopbar();
   bindTransportAndTableTools();
+  bindSceneAndSplitter();
   startRealVideoRaf();
 
   const ro = new ResizeObserver(() => {

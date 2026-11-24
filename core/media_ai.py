@@ -205,6 +205,16 @@ def _load_local_whisper_model(model_size: str, progress: ProgressCallback | None
     if model_size in _WHISPER_CACHE:
         return _WHISPER_CACHE[model_size]
 
+    import sys
+    import types
+
+    # PyAV (68MB of video codecs) is unnecessary since we feed 16kHz float32 PCM directly from FFmpeg WAV
+    if "av" not in sys.modules:
+        try:
+            import av  # noqa: F401
+        except ImportError:
+            sys.modules["av"] = types.ModuleType("av")
+
     from faster_whisper import WhisperModel
 
     def try_load(endpoint: str | None, device: str, compute_type: str):
@@ -331,15 +341,21 @@ def transcribe_video(
                 )
             return cues
 
-        # Local faster-whisper engine
+        # Local faster-whisper engine (feed 16kHz mono float32 PCM directly, zero PyAV overhead)
+        import wave
+
         model_size = config.get("model_size", "base")
         model = _load_local_whisper_model(model_size, progress=progress)
 
         if progress:
             progress("正在进行 AI 语音识别与自动断句打轴…", 25)
 
+        with wave.open(str(wav_path), "rb") as wf:
+            pcm_bytes = wf.readframes(wf.getnframes())
+        audio_np = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
         segments_gen, info = model.transcribe(
-            str(wav_path),
+            audio_np,
             language=lang_arg,
             beam_size=4,
             vad_filter=True,

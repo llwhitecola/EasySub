@@ -30,13 +30,7 @@ if sys.stderr is None:
 
 import webview
 
-from core.media_ai import (
-    ensure_playable_video,
-    extract_waveform_peaks,
-    probe_media_duration,
-    transcribe_video,
-    translate_subtitles,
-)
+# Only lightweight pure-Python subtitle parser is imported at startup for instant window launch!
 from core.subtitles import (
     DEFAULT_PRESETS,
     export_ass,
@@ -45,10 +39,6 @@ from core.subtitles import (
     merge_internal_bilingual_lines,
     merge_two_subtitles,
     parse_plain_text,
-)
-from core.sup_export import (
-    convert_ass_file_to_sup,
-    export_editor_subtitles_to_sup,
 )
 
 if getattr(sys, "frozen", False):
@@ -255,6 +245,8 @@ class DesktopBridgeApi:
         return self.load_video_by_path(selected[0])
 
     def load_video_by_path(self, raw_path: str) -> dict[str, Any]:
+        from core.media_ai import ensure_playable_video, probe_media_duration
+
         path = Path(raw_path)
         if not path.exists():
             return {"ok": False, "error": f"找不到文件: {raw_path}"}
@@ -286,6 +278,8 @@ class DesktopBridgeApi:
         }
 
     def get_video_waveform(self) -> dict[str, Any]:
+        from core.media_ai import extract_waveform_peaks
+
         target = STATE.video_path or STATE.playable_path
         if not target or not target.exists():
             return {"ok": False, "peaks": []}
@@ -428,6 +422,8 @@ class DesktopBridgeApi:
 
         def worker() -> None:
             try:
+                from core.media_ai import transcribe_video, translate_subtitles
+
                 STATE.set_task(True, "正在启动 AI 双语助手…", 5)
                 subs = list(current_subtitles)
 
@@ -479,6 +475,8 @@ class DesktopBridgeApi:
     def translate_single_row(
         self, text: str, direction: str = "en_to_zh"
     ) -> dict[str, Any]:
+        from core.media_ai import translate_subtitles
+
         settings = load_settings()
         dummy = [
             {
@@ -616,6 +614,8 @@ class DesktopBridgeApi:
 
         def worker() -> None:
             try:
+                from core.sup_export import export_editor_subtitles_to_sup
+
                 STATE.set_task(True, "正在启动蓝光 PGS (.sup) 图形字幕压制引擎…", 4)
                 res = export_editor_subtitles_to_sup(
                     subtitles=subtitles,
@@ -681,6 +681,8 @@ class DesktopBridgeApi:
 
         def worker() -> None:
             try:
+                from core.sup_export import convert_ass_file_to_sup
+
                 total_files = len(ass_files)
                 converted_paths: list[str] = []
                 for idx, src_ass in enumerate(ass_files):
@@ -751,6 +753,19 @@ def bind_drag_and_drop(window: webview.Window, api: DesktopBridgeApi) -> None:
         )
     except Exception:
         pass
+
+    # Warm up numpy / httpx / PIL in background AFTER window is visible so first click is instant
+    def _warm_heavy_modules() -> None:
+        import time
+
+        time.sleep(1.2)
+        try:
+            import core.media_ai  # noqa: F401
+            import core.sup_export  # noqa: F401
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm_heavy_modules, daemon=True).start()
 
 
 def main() -> None:
