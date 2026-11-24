@@ -456,12 +456,63 @@ def _translate_batch_mymemory(texts: list[str], to_lang: str) -> list[str]:
             return list(pool.map(lambda t: fetch_one(client, t), texts))
 
 
+def parse_glossary_pairs(glossary_raw: str) -> list[tuple[str, str]]:
+    """
+    Parse user glossary like 'Will=威尔, Sylvia=西尔维娅' into [(src, dst), ...] sorted longest-first.
+    """
+    if not glossary_raw or not glossary_raw.strip():
+        return []
+    pairs: list[tuple[str, str]] = []
+    for token in re.split(r"[,，;；\n]+", glossary_raw):
+        token = token.strip()
+        if not token:
+            continue
+        m = re.split(r"\s*(?:=|->|➔|:|：)\s*", token, maxsplit=1)
+        if len(m) == 2 and m[0].strip() and m[1].strip():
+            pairs.append((m[0].strip(), m[1].strip()))
+    pairs.sort(key=lambda x: len(x[0]), reverse=True)
+    return pairs
+
+
+def _apply_glossary_placeholders(
+    texts: list[str], pairs: list[tuple[str, str]]
+) -> list[str]:
+    if not pairs:
+        return texts
+    masked: list[str] = []
+    for t in texts:
+        cur = t
+        for idx, (src, _dst) in enumerate(pairs):
+            placeholder = f"[[EZG{idx}]]"
+            if re.match(r"^[A-Za-z0-9_ ]+$", src):
+                cur = re.sub(rf"\b{re.escape(src)}\b", placeholder, cur, flags=re.IGNORECASE)
+            else:
+                cur = cur.replace(src, placeholder)
+        masked.append(cur)
+    return masked
+
+
+def _restore_glossary_placeholders(
+    texts: list[str], pairs: list[tuple[str, str]]
+) -> list[str]:
+    if not pairs:
+        return texts
+    restored: list[str] = []
+    for t in texts:
+        cur = t
+        for idx, (_src, dst) in enumerate(pairs):
+            cur = re.sub(rf"\[\s*\[\s*EZG{idx}\s*\]\s*\]", dst, cur, flags=re.IGNORECASE)
+        restored.append(cur)
+    return restored
+
+
 def _translate_batch_llm(
     texts: list[str],
     to_lang: str,
     api_base: str,
     api_key: str,
     model: str,
+    glossary_pairs: list[tuple[str, str]] | None = None,
     progress: ProgressCallback | None = None,
 ) -> list[str]:
     """
@@ -473,6 +524,11 @@ def _translate_batch_llm(
     results: list[str] = [""] * len(texts)
     chunk_size = 25
 
+    glossary_note = ""
+    if glossary_pairs:
+        formatted_terms = "；".join(f"{s} -> {d}" for s, d in glossary_pairs)
+        glossary_note = f"\n3. 专有名词与人名固定译法表（遇到时必须严格采用）：{formatted_terms}。"
+
     with httpx.Client(timeout=90.0) as client:
         for start in range(0, len(texts), chunk_size):
             chunk = texts[start : start + chunk_size]
@@ -481,7 +537,7 @@ def _translate_batch_llm(
                 f"你是一位资深影视双语字幕翻译专家。请将用户提供的 JSON 字典中的每句台词结合前后语境翻译为{target_desc}。\n"
                 "严格要求：\n"
                 "1. 必须仅输出合法的 JSON 对象，键名与输入完全一致（如 \"0\", \"1\"...），值为翻译后的单行字符串。\n"
-                "2. 不要合并或遗漏任何一行，字幕末尾不要加句号，保持口语自然流畅。"
+                f"2. 不要合并或遗漏任何一行，字幕末尾不要加句号，保持口语自然流畅。{glossary_note}"
             )
             resp = client.post(
                 url,
@@ -554,6 +610,8 @@ def translate_subtitles(
     if progress:
         progress(f"准备翻译 {len(source_texts)} 句台词…", 15)
 
+    glossary_pairs = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+
     translated_list: list[str] = []
     if provider == "llm":
         llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
@@ -562,10 +620,17 @@ def translate_subtitles(
         if not llm_key:
             raise ValueError("使用 AI 大模型精翻时，请先填写 API Key（或切换为“免配置极速翻译”）。")
         translated_list = _translate_batch_llm(
-            source_texts, to_lang, llm_base, llm_key, llm_model, progress=progress
+            source_texts,
+            to_lang,
+            llm_base,
+            llm_key,
+            llm_model,
+            glossary_pairs=glossary_pairs,
+            progress=progress,
         )
     else:
         # Automatic multi-engine zero-config translation: Google clients5 -> MyMemory
+        prepared_texts = _apply_glossary_placeholders(source_texts, glossary_pairs)
         last_err = None
         for fn_name, fn in (
             ("极速神经网络批量翻译", _translate_batch_google_clients5),
@@ -574,8 +639,9 @@ def translate_subtitles(
             try:
                 if progress:
                     progress(f"正在通过{fn_name}批量生成双语字幕…", 45)
-                translated_list = fn(source_texts, to_lang)
-                if len(translated_list) == len(source_texts):
+                raw_trans = fn(prepared_texts, to_lang)
+                if len(raw_trans) == len(source_texts):
+                    translated_list = _restore_glossary_placeholders(raw_trans, glossary_pairs)
                     break
             except Exception as exc:
                 last_err = exc

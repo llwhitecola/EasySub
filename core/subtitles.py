@@ -424,18 +424,36 @@ def parse_srt_or_vtt(content: str, lang_hint: str = "auto") -> list[dict[str, An
 
 def parse_ass(content: str, lang_hint: str = "auto") -> list[dict[str, Any]]:
     content = content.replace("\r\n", "\n").replace("\r", "\n")
-    in_events = False
+    section = ""
+    style_fields: list[str] = []
+    top_style_names: set[str] = set()
     format_fields: list[str] = []
     raw_events: list[dict[str, Any]] = []
 
     for line in content.split("\n"):
         stripped = line.strip()
-        if stripped.lower() == "[events]":
-            in_events = True
+        if not stripped or stripped.startswith(";"):
             continue
-        if in_events and stripped.startswith("[") and stripped.endswith("]"):
-            break
-        if not in_events or not stripped:
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.lower()
+            continue
+
+        # Detect top-aligned styles (Alignment in 7, 8, 9 or named 注释/top/sign)
+        if section in ("[v4+ styles]", "[v4 styles]"):
+            if stripped.lower().startswith("format:"):
+                style_fields = [f.strip().lower() for f in stripped.split(":", 1)[1].split(",")]
+            elif stripped.lower().startswith("style:") and style_fields:
+                sparts = [p.strip() for p in stripped.split(":", 1)[1].split(",")]
+                srow = dict(zip(style_fields, sparts))
+                sname = srow.get("name", "")
+                align_val = srow.get("alignment", "2")
+                if align_val in ("7", "8", "9") or any(
+                    kw in sname.lower() for kw in ("注释", "top", "sign")
+                ):
+                    top_style_names.add(sname)
+            continue
+
+        if section != "[events]":
             continue
 
         if stripped.lower().startswith("format:"):
@@ -462,19 +480,25 @@ def parse_ass(content: str, lang_hint: str = "auto") -> list[dict[str, Any]]:
             row = dict(zip(format_fields, parts))
             start_ms = parse_ass_timestamp(row.get("start", "0:00:00.00"))
             end_ms = parse_ass_timestamp(row.get("end", "0:00:02.00"))
+            style_used = (row.get("style") or "").strip()
             text = row.get("text", "")
+            is_top = (
+                style_used in top_style_names
+                or bool(re.search(r"\\an[789]\b", text))
+            )
             zh, en = split_bilingual_lines(text, lang_hint=lang_hint)
             if not zh and not en:
                 continue
-            raw_events.append(
-                {
-                    "id": len(raw_events) + 1,
-                    "start_ms": start_ms,
-                    "end_ms": max(end_ms, start_ms + 500),
-                    "zh": zh,
-                    "en": en,
-                }
-            )
+            ev_obj: dict[str, Any] = {
+                "id": len(raw_events) + 1,
+                "start_ms": start_ms,
+                "end_ms": max(end_ms, start_ms + 500),
+                "zh": zh,
+                "en": en,
+            }
+            if is_top:
+                ev_obj["pos"] = "top"
+            raw_events.append(ev_obj)
 
     raw_events.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
     reindex_subtitles(raw_events)
@@ -643,6 +667,9 @@ def merge_internal_bilingual_lines(
     en_candidates: list[int] = []
 
     for i, item in enumerate(subtitles):
+        # Do not merge top-screen annotations into bottom dialogue lines!
+        if item.get("pos") == "top":
+            continue
         zh = (item.get("zh") or "").strip()
         en = (item.get("en") or "").strip()
         if zh and not en and is_chinese_clean(zh):
@@ -940,6 +967,129 @@ def merge_two_subtitles(
     return final_list
 
 
+def format_us_drama_punctuation(subtitles: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Clean and normalize subtitle punctuation in classic US-drama subtitle-group style:
+      - Chinese internal commas/enumeration commas/semicolons -> single space
+      - Strip trailing periods/commas/semicolons on Chinese lines (keep ? ! ... quotes)
+      - Normalize full-width ？ ！ -> ? !
+      - Normalize dual-speaker hyphens (- A - B) and collapse duplicate spaces
+    """
+    updated: list[dict[str, Any]] = []
+    changed_count = 0
+
+    for item in subtitles:
+        row = dict(item)
+        orig_zh = row.get("zh") or ""
+        orig_en = row.get("en") or ""
+
+        zh = orig_zh.strip()
+        if zh:
+            # Normalize full-width ? and ! to crisp half-width ? and !
+            zh = zh.replace("？", "?").replace("！", "!")
+            # Strip trailing periods/commas/semicolons right before optional closing quotes or end of line
+            zh = re.sub(r"[。，、；;]+([\"”』」]?)$", r"\1", zh)
+            zh = re.sub(r"(?<!\.)\.(?!\.)([\"”』」]?)$", r"\1", zh)
+            # Replace internal Chinese commas/頓號/semicolons (and ASCII commas adjacent to CJK) with space
+            zh = re.sub(r"[，、；]", " ", zh)
+            zh = re.sub(r"(?<=[\u4e00-\u9fff])\s*,\s*|\s*,\s*(?=[\u4e00-\u9fff])", " ", zh)
+            # Replace internal Chinese periods '。' (when two sentences are on one line) with space
+            zh = re.sub(r"。+", " ", zh)
+            # Normalize leading speaker dash '-你好' -> '- 你好'
+            zh = re.sub(r"^-\s*(\S)", r"- \1", zh)
+            zh = re.sub(r"\s+", " ", zh).strip()
+
+        en = re.sub(r"\s+", " ", orig_en).strip()
+        if en:
+            en = re.sub(r"^-\s*(\S)", r"- \1", en)
+
+        if zh != orig_zh or en != orig_en:
+            changed_count += 1
+        row["zh"] = zh
+        row["en"] = en
+        updated.append(row)
+
+    return {"ok": True, "subtitles": updated, "changed_count": changed_count}
+
+
+def _split_single_sentence_near_mid(text: str) -> tuple[str, str]:
+    text = text.strip()
+    if not text:
+        return "", ""
+    n = len(text)
+    if n <= 2:
+        return text, ""
+
+    mid = n / 2.0
+    # Priority 1: dual-speaker dash ' - '
+    dash_matches = [m.start() for m in re.finditer(r"\s+-\s+", text)]
+    if dash_matches:
+        best = min(dash_matches, key=lambda idx: abs(idx - mid))
+        left = text[:best].strip()
+        right = text[best:].strip()
+        if left and right:
+            return left, right
+
+    # Priority 2: punctuation or space near middle (within 18%..82% of length)
+    lo, hi = int(n * 0.18), max(int(n * 0.18) + 1, int(n * 0.82))
+    candidates: list[tuple[float, int, int]] = []
+    for m in re.finditer(r"([?!。，、；,;.]+\s*|\s+)", text):
+        split_at = m.end()
+        if lo <= split_at <= hi:
+            # Punctuation breaks get a slight bonus over plain whitespace
+            is_punct = bool(re.search(r"[?!。，、；,;.]", m.group(0)))
+            penalty = abs(split_at - mid) - (3.5 if is_punct else 0.0)
+            candidates.append((penalty, split_at, m.start()))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        _, split_at, _ = candidates[0]
+        return text[:split_at].strip(), text[split_at:].strip()
+
+    # Fallback: split at character midpoint (for unspaced CJK) or nearest space
+    all_spaces = [m.start() for m in re.finditer(r"\s+", text)]
+    if all_spaces:
+        sp = min(all_spaces, key=lambda idx: abs(idx - mid))
+        return text[:sp].strip(), text[sp:].strip()
+
+    cut = int(round(mid))
+    return text[:cut].strip(), text[cut:].strip()
+
+
+def split_subtitle_cue_in_two(cue: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Intelligently split one long subtitle cue into two sequential cues,
+    allocating timestamps proportionally to character count.
+    """
+    zh1, zh2 = _split_single_sentence_near_mid(cue.get("zh") or "")
+    en1, en2 = _split_single_sentence_near_mid(cue.get("en") or "")
+
+    start_ms = int(cue.get("start_ms", 0))
+    end_ms = max(start_ms + 600, int(cue.get("end_ms", start_ms + 2000)))
+    total_dur = end_ms - start_ms
+
+    len1 = max(1, len(zh1) * 2 + len(en1))
+    len2 = max(1, len(zh2) * 2 + len(en2))
+    ratio = max(0.25, min(0.75, len1 / (len1 + len2)))
+
+    mid_ms = start_ms + int(round(total_dur * ratio))
+    gap = 30 if total_dur >= 900 else 0
+
+    first = dict(cue)
+    first["start_ms"] = start_ms
+    first["end_ms"] = max(start_ms + 250, mid_ms - gap)
+    first["zh"] = zh1
+    first["en"] = en1
+
+    second = dict(cue)
+    second["start_ms"] = mid_ms
+    second["end_ms"] = max(mid_ms + 250, end_ms)
+    second["zh"] = zh2
+    second["en"] = en2
+
+    return [first, second]
+
+
 def reindex_subtitles(subs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for idx, item in enumerate(subs, start=1):
         item["id"] = idx
@@ -1061,6 +1211,12 @@ def export_ass(
 
     zh_style_line = make_ass_style_line(zh_style_name, zh_cfg, mv_offset=0)
     en_style_line = make_ass_style_line(en_style_name, en_cfg, mv_offset=2)
+    top_note_style_name = "注释-雅黑"
+    top_note_color = hex_to_ass_color(zh_cfg.get("color", "#B7B7B7"), 1.0)
+    top_note_style_line = (
+        f"Style: {top_note_style_name},微软雅黑,75,{top_note_color},&H00000000,&H00000000,&H00000000,"
+        f"-1,0,0,0,90,100,0,0,1,1,1,8,10,10,40,1"
+    )
 
     header = f"""[Script Info]
 ; Script generated by EasySub Studio (傻瓜双语字幕工坊)
@@ -1076,6 +1232,7 @@ PlayResY: 1080
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 {zh_style_line}
 {en_style_line}
+{top_note_style_line}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1092,9 +1249,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for item in subtitles:
         zh = esc_ass(item.get("zh") or "")
         en = esc_ass(item.get("en") or "")
+        is_top_note = item.get("pos") == "top"
 
         start_str = format_ass_timestamp(item["start_ms"])
         end_str = format_ass_timestamp(item["end_ms"])
+
+        if is_top_note:
+            # Top-screen annotation / sign row (Layer 1, Alignment 8 at top center)
+            parts_top = [p for p in ([zh, en] if order == "zh_top" else [en, zh]) if p]
+            if lang_mode == "zh_only":
+                parts_top = [zh] if zh else []
+            elif lang_mode == "en_only":
+                parts_top = [en] if en else []
+            if parts_top:
+                joined_top = "\\N".join(parts_top)
+                events.append(
+                    f"Dialogue: 1,{start_str},{end_str},{top_note_style_name},,0,0,0,,{top_prefix}{joined_top}"
+                )
+            continue
 
         if lang_mode == "zh_only":
             if not zh:

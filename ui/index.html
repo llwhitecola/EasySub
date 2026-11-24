@@ -16,7 +16,7 @@
       <div class="brand-meta">
         <div class="brand-title">
           傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.2</span>
+          <span class="badge-pro">Studio v1.3</span>
         </div>
         <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
           <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
@@ -82,6 +82,11 @@
                 <div class="drop-hero-title">拖入视频或字幕文件开始制作</div>
                 <div class="drop-hero-sub">支持 MP4 / MKV / MOV / SRT / ASS · 点击此处也可选择视频</div>
               </div>
+            </div>
+
+            <!-- 1:1 Scaled Top Screen Annotation Overlay (注释-雅黑 / \an8) -->
+            <div class="subtitle-overlay-top" id="subtitleOverlayTop">
+              <div class="sub-line" id="subLineTopNote"></div>
             </div>
 
             <!-- 1:1 Scaled ASS WYSIWYG Subtitle Overlay -->
@@ -171,6 +176,11 @@
                 <div class="ms-head"><span>柔边羽化 (\blur)</span><b id="lblBlur">2</b></div>
                 <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
               </label>
+            </div>
+
+            <div class="save-preset-bar">
+              <input type="text" id="inpCustomPresetName" class="input-sm" placeholder="给当前精调配色起个名字…" />
+              <button class="btn btn-step btn-sm" id="btnSaveCustomPreset" title="把右侧微调好的字体、颜色与字宽永久收藏为新模板卡片">⭐ 存为我的模板</button>
             </div>
           </div>
         </div>
@@ -332,10 +342,12 @@
 
         <div class="table-actions">
           <div class="search-box-wrap">
-            <input type="text" id="inpSearch" class="input-search" placeholder="搜索中文或英文台词…" />
+            <input type="text" id="inpSearch" class="input-search" placeholder="过滤中文或英文台词…" />
           </div>
-          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行">🧲 合并表内中英行</button>
-          <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键按语种自动归位">🔄 纠正中英分栏</button>
+          <button class="btn btn-ghost btn-sm" id="btnOpenFindReplace" title="批量查找与替换人名或词句 (快捷键 Ctrl+H)">🔎 查找替换</button>
+          <button class="btn btn-step btn-sm" id="btnCleanPunct" title="一键按美剧字幕组规范清洗：中文句中逗号转空格、去除句末句号、全角问号感叹号转半角">🧹 美剧标点清洗</button>
+          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行">🧲 合并中英行</button>
+          <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键按语种自动归位">🔄 纠偏分栏</button>
           <button class="btn btn-ghost btn-sm" id="btnClearAll" title="清空当前字幕列表（可 Ctrl+Z 撤销）">🗑️ 清空</button>
         </div>
       </div>
@@ -356,13 +368,16 @@
   <footer class="statusbar">
     <div class="status-left">
       <span id="activePresetFooter">🎨 当前模板：美剧双语经典 (默认)</span>
+      <span class="status-sep">·</span>
+      <span id="autosaveStatusText">💾 自动防丢稿已开启</span>
+      <button class="btn-restore-draft hidden" id="btnRestoreAutosave">📂 恢复上次未导出草稿</button>
     </div>
     <div class="status-shortcuts">
       <span><kbd>F2</kbd> 播放/暂停</span>
       <span><kbd>F3</kbd> 设开始</span>
       <span><kbd>F4</kbd> 设结束跳下句</span>
       <span><kbd>F5</kbd> 重播本句</span>
-      <span><kbd>Enter</kbd> 跳下行同栏</span>
+      <span><kbd>Ctrl+H</kbd> 查找替换</span>
       <span><kbd>Ctrl+Z</kbd> 撤销</span>
     </div>
   </footer>
@@ -557,6 +572,11 @@
               <input type="text" id="aiLlmModel" class="input-sm" placeholder="deepseek-chat / gpt-4o-mini" />
             </label>
           </div>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#94a3b8;">
+            <span>📖 专有名词 / 人名固定译法表（选填，用逗号分隔，免配置极速翻译与大模型精翻均自动锁定统一译名）</span>
+            <input type="text" id="aiGlossary" class="input-sm" placeholder="例如：Will=威尔, Sylvia=西尔维娅, San Diego=圣迭戈" />
+          </label>
         </div>
 
         <div class="ai-progress-box hidden" id="aiProgressBox">
@@ -681,6 +701,44 @@
             <div class="ai-prog-bar" id="supProgressBar" style="width: 6%"></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Batch Find & Replace (Ctrl+H) -->
+  <div class="modal-backdrop hidden" id="modalFindReplace">
+    <div class="modal-card" style="width:520px;">
+      <div class="modal-header">
+        <h3>🔎 批量查找与替换 (Ctrl+H)</h3>
+        <button class="modal-close" data-close="modalFindReplace">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid-2">
+          <label class="span-2">查找内容
+            <input type="text" id="inpFindText" class="input-sm" placeholder="输入要查找的人名、词汇或符号…" />
+          </label>
+          <label class="span-2">替换为
+            <input type="text" id="inpReplaceText" class="input-sm" placeholder="输入替换后的内容（留空则表示删除匹配词）…" />
+          </label>
+          <label>作用范围
+            <select id="selFindScope" class="input-sm">
+              <option value="both" selected>中英文双栏同时查找</option>
+              <option value="zh">仅在 🇨🇳 中文栏查找</option>
+              <option value="en">仅在 🇬🇧 英文栏查找</option>
+            </select>
+          </label>
+          <label class="check-bottom switch-label">
+            <input type="checkbox" class="ui-switch" id="chkFindCase" />
+            <span>区分英文字母大小写</span>
+          </label>
+        </div>
+        <div class="find-stat-bar">
+          <span id="lblFindCount">请输入查找词…</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalFindReplace">关闭</button>
+        <button class="btn btn-primary" id="btnRunReplaceAll">⚡ 全部替换</button>
       </div>
     </div>
   </div>

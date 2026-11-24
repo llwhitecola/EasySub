@@ -11,6 +11,8 @@ dist/
 
 # User local runtime config & caches (never commit API keys)
 settings.json
+custom_presets.json
+autosave.json
 webview_cache/
 easysub_studio_cache/
 .env

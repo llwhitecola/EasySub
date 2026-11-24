@@ -35,10 +35,12 @@ from core.subtitles import (
     DEFAULT_PRESETS,
     export_ass,
     export_srt,
+    format_us_drama_punctuation,
     load_subtitle_file,
     merge_internal_bilingual_lines,
     merge_two_subtitles,
     parse_plain_text,
+    split_subtitle_cue_in_two,
 )
 
 if getattr(sys, "frozen", False):
@@ -53,6 +55,8 @@ else:
 USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 UI_DIR = BUNDLE_DIR / "ui"
 SETTINGS_PATH = USER_DATA_DIR / "settings.json"
+CUSTOM_PRESETS_PATH = USER_DATA_DIR / "custom_presets.json"
+AUTOSAVE_PATH = USER_DATA_DIR / "autosave.json"
 WEBVIEW_STORAGE_DIR = USER_DATA_DIR / "webview_cache"
 WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_MEDIA_DIR = Path(tempfile.gettempdir()) / "easysub_studio_cache"
@@ -112,6 +116,7 @@ def load_settings() -> dict[str, Any]:
         "asr_api_key": "",
         "asr_api_model": "whisper-1",
         "trans_provider": "free",
+        "trans_glossary": "",
         "llm_base": "https://api.deepseek.com/v1",
         "llm_key": "",
         "llm_model": "deepseek-chat",
@@ -124,6 +129,26 @@ def load_settings() -> dict[str, Any]:
         except Exception:
             pass
     return defaults
+
+
+def load_custom_presets() -> list[dict[str, Any]]:
+    if not CUSTOM_PRESETS_PATH.exists():
+        return []
+    try:
+        items = json.loads(CUSTOM_PRESETS_PATH.read_text(encoding="utf-8"))
+        if isinstance(items, list):
+            for it in items:
+                it["is_custom"] = True
+            return items
+    except Exception:
+        pass
+    return []
+
+
+def save_custom_presets_list(items: list[dict[str, Any]]) -> None:
+    CUSTOM_PRESETS_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def save_settings(new_settings: dict[str, Any]) -> dict[str, Any]:
@@ -218,11 +243,95 @@ class DesktopBridgeApi:
     """Exposed to JavaScript via window.pywebview.api.*"""
 
     def get_initial_bootstrap(self) -> dict[str, Any]:
+        autosave_meta = None
+        if AUTOSAVE_PATH.exists():
+            try:
+                draft = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8"))
+                subs = draft.get("subtitles") or []
+                if len(subs) > 0:
+                    autosave_meta = {
+                        "saved_at": draft.get("saved_at", ""),
+                        "count": len(subs),
+                        "video_name": draft.get("video_name", ""),
+                    }
+            except Exception:
+                pass
+
         return {
-            "presets": DEFAULT_PRESETS,
+            "presets": DEFAULT_PRESETS + load_custom_presets(),
             "settings": load_settings(),
             "app_dir": str(APP_DIR),
+            "autosave_meta": autosave_meta,
         }
+
+    def save_custom_preset(
+        self, name: str, style: dict[str, Any]
+    ) -> dict[str, Any]:
+        import time
+
+        clean_name = (name or "").strip() or "我的自定义样式"
+        custom_list = load_custom_presets()
+        new_preset = dict(style)
+        new_preset["id"] = f"custom_{int(time.time() * 1000)}"
+        new_preset["name"] = clean_name
+        new_preset["desc"] = f"自定义收藏 · {style.get('zh', {}).get('font', '')} + {style.get('en', {}).get('font', '')}"
+        new_preset["is_custom"] = True
+        custom_list.append(new_preset)
+        save_custom_presets_list(custom_list)
+        return {
+            "ok": True,
+            "new_id": new_preset["id"],
+            "presets": DEFAULT_PRESETS + custom_list,
+        }
+
+    def delete_custom_preset(self, preset_id: str) -> dict[str, Any]:
+        custom_list = [p for p in load_custom_presets() if p.get("id") != preset_id]
+        save_custom_presets_list(custom_list)
+        return {"ok": True, "presets": DEFAULT_PRESETS + custom_list}
+
+    def save_autosave_draft(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from datetime import datetime
+
+        try:
+            data = {
+                "saved_at": datetime.now().strftime("%m-%d %H:%M:%S"),
+                "video_path": str(STATE.video_path) if STATE.video_path else "",
+                "video_name": payload.get("video_name", ""),
+                "style": payload.get("style"),
+                "subtitles": payload.get("subtitles") or [],
+            }
+            AUTOSAVE_PATH.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8"
+            )
+            return {"ok": True, "saved_at": data["saved_at"]}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def load_autosave_draft(self) -> dict[str, Any]:
+        if not AUTOSAVE_PATH.exists():
+            return {"ok": False, "error": "未找到自动保存草稿"}
+        try:
+            data = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8"))
+            return {"ok": True, "draft": data}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def clear_autosave_draft(self) -> dict[str, Any]:
+        try:
+            if AUTOSAVE_PATH.exists():
+                AUTOSAVE_PATH.unlink()
+        except Exception:
+            pass
+        return {"ok": True}
+
+    def clean_us_drama_punctuation(
+        self, subtitles: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return format_us_drama_punctuation(subtitles)
+
+    def split_cue_item(self, cue: dict[str, Any]) -> dict[str, Any]:
+        parts = split_subtitle_cue_in_two(cue)
+        return {"ok": True, "parts": parts}
 
     def update_user_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         return save_settings(settings)
@@ -447,6 +556,7 @@ class DesktopBridgeApi:
                     overwrite = bool(options.get("overwrite", False))
                     trans_cfg = {
                         "provider": settings.get("trans_provider", "free"),
+                        "glossary": settings.get("trans_glossary", ""),
                         "llm_base": settings.get("llm_base", ""),
                         "llm_key": settings.get("llm_key", ""),
                         "llm_model": settings.get("llm_model", ""),
@@ -494,6 +604,7 @@ class DesktopBridgeApi:
                 overwrite_existing=True,
                 config={
                     "provider": settings.get("trans_provider", "free"),
+                    "glossary": settings.get("trans_glossary", ""),
                     "llm_base": settings.get("llm_base", ""),
                     "llm_key": settings.get("llm_key", ""),
                     "llm_model": settings.get("llm_model", ""),

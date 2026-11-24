@@ -113,6 +113,7 @@ const state = {
 
   undoStack: [],
   redoStack: [],
+  dirtyForAutosave: false,
   settings: {},
   aiPollTimer: null,
 };
@@ -199,6 +200,7 @@ function pushUndoSnapshot() {
   state.undoStack.push(JSON.stringify(state.subtitles));
   if (state.undoStack.length > 45) state.undoStack.shift();
   state.redoStack = [];
+  state.dirtyForAutosave = true;
 }
 
 function undo() {
@@ -406,7 +408,15 @@ function applyLineStyle(domEl, cfg, scale, boxMode, blurVal = 0) {
 function findActiveCueAt(ms) {
   for (let i = 0; i < state.subtitles.length; i++) {
     const c = state.subtitles[i];
-    if (ms >= c.start_ms && ms <= c.end_ms) return { cue: c, idx: i };
+    if (c.pos !== "top" && ms >= c.start_ms && ms <= c.end_ms) return { cue: c, idx: i };
+  }
+  return null;
+}
+
+function findActiveTopNoteAt(ms) {
+  for (let i = 0; i < state.subtitles.length; i++) {
+    const c = state.subtitles[i];
+    if (c.pos === "top" && ms >= c.start_ms && ms <= c.end_ms) return { cue: c, idx: i };
   }
   return null;
 }
@@ -414,7 +424,47 @@ function findActiveCueAt(ms) {
 function updateSubtitleOverlay() {
   const stageH = el.videoStage.clientHeight || 360;
   const scale = stageH / 1080; // Matches PlayResY: 1080 in exported .ass!
+  const blurVal = Number(state.style.blur ?? 2.0);
 
+  // 1. Render Top-Screen Annotation (注释-雅黑 / \an8) if active at current time
+  const topOverlay = document.getElementById("subtitleOverlayTop");
+  const topNoteEl = document.getElementById("subLineTopNote");
+  const activeTop = findActiveTopNoteAt(state.currentTimeMs);
+  if (topOverlay && topNoteEl) {
+    topOverlay.style.top = `${Math.round(40 * scale)}px`;
+    if (activeTop) {
+      const tZh = (activeTop.cue.zh || "").trim();
+      const tEn = (activeTop.cue.en || "").trim();
+      const noteText = [tZh, tEn].filter(Boolean).join("\n");
+      if (noteText) {
+        topNoteEl.style.display = "block";
+        topNoteEl.textContent = noteText;
+        applyLineStyle(
+          topNoteEl,
+          {
+            font: "Microsoft YaHei",
+            size: 75,
+            color: state.style.zh.color || "#B7B7B7",
+            outline_color: "#000000",
+            outline: 1.0,
+            shadow: 1.0,
+            scale_x: 90,
+            bold: true,
+            italic: false,
+          },
+          scale,
+          false,
+          blurVal
+        );
+      } else {
+        topNoteEl.style.display = "none";
+      }
+    } else {
+      topNoteEl.style.display = "none";
+    }
+  }
+
+  // 2. Render Bottom Bilingual Dialogue
   el.subtitleOverlay.style.bottom = `${Math.round(state.style.margin_v * scale)}px`;
   el.subBoxWrap.style.gap = `${Math.max(1, Math.round(state.style.line_gap * scale))}px`;
 
@@ -459,8 +509,6 @@ function updateSubtitleOverlay() {
 
   el.subBoxWrap.style.display = "inline-flex";
 
-  const blurVal = Number(state.style.blur ?? 2.0);
-
   if (topTxt) {
     el.subLineTop.style.display = "block";
     el.subLineTop.textContent = topTxt;
@@ -487,6 +535,7 @@ function extractStyleFromPreset(p) {
   delete copy.id;
   delete copy.name;
   delete copy.desc;
+  delete copy.is_custom;
   if (copy.blur === undefined) copy.blur = 0.8;
   if (copy.ycbcr_matrix === undefined) copy.ycbcr_matrix = "None";
   if (copy.zh && copy.zh.scale_x === undefined) copy.zh.scale_x = 100;
@@ -525,6 +574,7 @@ function renderPresetCards() {
       : "linear-gradient(180deg, #0d1526 0%, #060911 100%)";
 
     card.innerHTML = `
+      ${p.is_custom ? '<button class="btn-del-preset" title="删除此自定义模板">✕</button>' : ""}
       ${isActive ? '<span class="preset-badge-active">当前</span>' : ""}
       <div class="preset-preview-mini" style="background:${boxBg}">
         <div style="color:${firstColor};font-weight:700;font-size:12px;text-shadow:0 1px 2px #000;">${topIsZh ? "美剧双语字幕预览" : "Cinema Subtitle"}</div>
@@ -533,6 +583,25 @@ function renderPresetCards() {
       <div class="preset-name">${p.name}</div>
       <div class="preset-desc">${p.desc}</div>
     `;
+    const delBtn = card.querySelector(".btn-del-preset");
+    if (delBtn) {
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!hasApi()) return;
+        const res = await window.pywebview.api.delete_custom_preset(p.id);
+        if (res.ok) {
+          state.presets = res.presets;
+          if (state.activePresetId === p.id && state.presets.length) {
+            state.activePresetId = state.presets[0].id;
+            state.style = extractStyleFromPreset(state.presets[0]);
+            syncStyleControlsFromState();
+            updateSubtitleOverlay();
+          }
+          renderPresetCards();
+          showToast(`已删除自定义模板：${p.name}`);
+        }
+      });
+    }
     card.addEventListener("click", () => {
       state.activePresetId = p.id;
       state.style = extractStyleFromPreset(p);
@@ -778,15 +847,24 @@ function drawWaveform() {
     }
   }
 
-  // Subtitle regions (glass pills with top accent bar)
+  // Subtitle regions (glass pills with top accent bar; cyan tint for top-screen annotations!)
   state.subtitles.forEach((cue, idx) => {
     const x1 = (cue.start_ms / 1000) * effectivePxPerSec;
     const x2 = Math.max(x1 + 6, (cue.end_ms / 1000) * effectivePxPerSec);
     const w = x2 - x1;
     const isSel = idx === state.selectedIdx;
+    const isTop = cue.pos === "top";
 
-    ctx.fillStyle = isSel ? "rgba(37, 99, 235, 0.32)" : "rgba(99, 102, 241, 0.16)";
-    ctx.strokeStyle = isSel ? "#60a5fa" : "rgba(148, 163, 184, 0.35)";
+    ctx.fillStyle = isSel
+      ? "rgba(37, 99, 235, 0.34)"
+      : isTop
+      ? "rgba(6, 182, 212, 0.22)"
+      : "rgba(99, 102, 241, 0.16)";
+    ctx.strokeStyle = isSel
+      ? "#60a5fa"
+      : isTop
+      ? "rgba(34, 211, 238, 0.5)"
+      : "rgba(148, 163, 184, 0.35)";
     ctx.lineWidth = isSel ? 1.5 : 1;
 
     ctx.beginPath();
@@ -799,7 +877,7 @@ function drawWaveform() {
     ctx.beginPath();
     ctx.roundRect(x1, 22, w, 58, 5);
     ctx.clip();
-    ctx.fillStyle = isSel ? "#3b82f6" : "rgba(139, 92, 246, 0.55)";
+    ctx.fillStyle = isSel ? "#3b82f6" : isTop ? "#06b6d4" : "rgba(139, 92, 246, 0.55)";
     ctx.fillRect(x1, 22, w, 3);
 
     if (isSel) {
@@ -811,8 +889,9 @@ function drawWaveform() {
     if (w > 28) {
       ctx.fillStyle = "#f8fafc";
       ctx.font = "bold 11px 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif";
-      const label = cue.zh || cue.en || `#${cue.id}`;
-      ctx.fillText(`#${cue.id} ${label}`, x1 + 6, 40);
+      const prefix = isTop ? `[顶#${cue.id}] ` : `#${cue.id} `;
+      const label = cue.zh || cue.en || "";
+      ctx.fillText(`${prefix}${label}`, x1 + 6, 40);
       if (cue.zh && cue.en) {
         ctx.fillStyle = "#cbd5e1";
         ctx.font = "10px 'Segoe UI', sans-serif";
@@ -1080,6 +1159,15 @@ function syncSingleRowTimeInputs(idx) {
   }
 }
 
+function checkLineLengthWarn(zhInp, enInp) {
+  const zhLen = (zhInp.value || "").replace(/\s+/g, "").length;
+  const enLen = (enInp.value || "").trim().length;
+  zhInp.classList.toggle("too-long", zhLen > 22);
+  zhInp.title = zhLen > 22 ? `当前中文 ${zhLen} 字偏长，建议点击右侧 ✂️ 拆成两句` : "";
+  enInp.classList.toggle("too-long", enLen > 58);
+  enInp.title = enLen > 58 ? `当前英文 ${enLen} 字符偏长，建议点击右侧 ✂️ 拆成两句` : "";
+}
+
 function renderTable() {
   updateStatsBadges();
   const q = state.searchQuery.trim().toLowerCase();
@@ -1095,6 +1183,7 @@ function renderTable() {
     row.className = `sub-row ${idx === state.selectedIdx ? "selected" : ""}`;
     row.dataset.idx = idx;
     const durMs = cue.end_ms - cue.start_ms;
+    const isTop = cue.pos === "top";
 
     row.innerHTML = `
       <div class="col-idx">${cue.id}</div>
@@ -1112,7 +1201,9 @@ function renderTable() {
       </div>
       <div class="row-ops">
         <button class="op-btn act-play" title="定位并播放本句">▶</button>
-        <button class="op-btn act-trans" title="AI 单句互译补全 (中⇄英)">🌐</button>
+        <button class="op-btn act-pos ${isTop ? "top-active" : ""}" title="切换位置：底部对白 ⇄ 顶部屏幕注释 (注释-雅黑)">${isTop ? "顶" : "📍"}</button>
+        <button class="op-btn act-trans" title="AI 单句互译补全 (自动应用专有名词表)">🌐</button>
+        <button class="op-btn act-split" title="智能拆句：将过长的本句按比例一分为二">✂️</button>
         <button class="op-btn act-insert" title="在下方插入新行">➕</button>
         <button class="op-btn act-merge" title="与下一句合并">🔗</button>
         <button class="op-btn danger act-del" title="删除本句">🗑</button>
@@ -1123,6 +1214,7 @@ function renderTable() {
     const enInp = row.querySelector(".en-inp");
     zhInp.value = cue.zh || "";
     enInp.value = cue.en || "";
+    checkLineLengthWarn(zhInp, enInp);
 
     row.addEventListener("mousedown", (e) => {
       if (e.target.closest(".row-ops")) return;
@@ -1173,6 +1265,7 @@ function renderTable() {
         pushedForFocus = true;
       }
       cue[field] = inp.value;
+      checkLineLengthWarn(zhInp, enInp);
       updateSubtitleOverlay();
       updateStatsBadges();
       drawWaveform();
@@ -1202,6 +1295,36 @@ function renderTable() {
     row.querySelector(".act-play").addEventListener("click", () => {
       selectRow(idx, false);
       replaySelectedCue();
+    });
+
+    row.querySelector(".act-pos").addEventListener("click", () => {
+      pushUndoSnapshot();
+      cue.pos = cue.pos === "top" ? "bottom" : "top";
+      if (cue.pos === "bottom") delete cue.pos;
+      renderTable();
+      updateSubtitleOverlay();
+      drawWaveform();
+      showToast(
+        cue.pos === "top"
+          ? `第 #${cue.id} 句已设为「顶部屏幕注释 (注释-雅黑)」`
+          : `第 #${cue.id} 句已恢复为「底部双语对白」`,
+        "success"
+      );
+    });
+
+    row.querySelector(".act-split").addEventListener("click", async () => {
+      if (!hasApi()) return;
+      const res = await window.pywebview.api.split_cue_item(cue);
+      if (res.ok && res.parts && res.parts.length === 2) {
+        pushUndoSnapshot();
+        state.subtitles.splice(idx, 1, res.parts[0], res.parts[1]);
+        reindexSubtitles();
+        state.selectedIdx = idx;
+        renderTable();
+        updateSubtitleOverlay();
+        drawWaveform();
+        showToast(`已将第 #${idx + 1} 句按比例智能拆分为两句！`, "success");
+      }
     });
 
     row.querySelector(".act-trans").addEventListener("click", async () => {
@@ -1702,6 +1825,7 @@ function populateSettingsUI(s) {
   document.getElementById("aiAsrApiModel").value = s.asr_api_model || "whisper-1";
 
   document.getElementById("aiTransProvider").value = s.trans_provider || "free";
+  document.getElementById("aiGlossary").value = s.trans_glossary || "";
   document.getElementById("aiLlmBase").value = s.llm_base || "https://api.deepseek.com/v1";
   document.getElementById("aiLlmKey").value = s.llm_key || "";
   document.getElementById("aiLlmModel").value = s.llm_model || "deepseek-chat";
@@ -1717,6 +1841,7 @@ function collectSettingsFromUI() {
     asr_api_key: document.getElementById("aiAsrApiKey").value.trim(),
     asr_api_model: document.getElementById("aiAsrApiModel").value.trim(),
     trans_provider: document.getElementById("aiTransProvider").value,
+    trans_glossary: document.getElementById("aiGlossary").value.trim(),
     llm_base: document.getElementById("aiLlmBase").value.trim(),
     llm_key: document.getElementById("aiLlmKey").value.trim(),
     llm_model: document.getElementById("aiLlmModel").value.trim(),
@@ -1815,6 +1940,124 @@ function bindTransportAndTableTools() {
     renderTable();
   });
 
+  // Save Custom Style Preset
+  document.getElementById("btnSaveCustomPreset")?.addEventListener("click", async () => {
+    if (!hasApi()) return;
+    const nameInp = document.getElementById("inpCustomPresetName");
+    const nameVal = (nameInp.value || "").trim() || "我的专属美剧样式";
+    const res = await window.pywebview.api.save_custom_preset(nameVal, state.style);
+    if (res.ok) {
+      state.presets = res.presets;
+      state.activePresetId = res.new_id;
+      nameInp.value = "";
+      renderPresetCards();
+      showToast(`已永久收藏模板：「${nameVal}」！`, "success");
+    }
+  });
+
+  // 1-Click US Drama Punctuation Cleanup
+  document.getElementById("btnCleanPunct")?.addEventListener("click", async () => {
+    if (!hasApi() || !state.subtitles.length) return;
+    const res = await window.pywebview.api.clean_us_drama_punctuation(state.subtitles);
+    if (res.ok) {
+      if (res.changed_count === 0) {
+        showToast("检查完毕：所有标点均已符合美剧无句号空格规范！");
+        return;
+      }
+      pushUndoSnapshot();
+      state.subtitles = res.subtitles;
+      renderTable();
+      updateSubtitleOverlay();
+      drawWaveform();
+      showToast(`已规范化清洗 ${res.changed_count} 句台词标点！（可按 Ctrl+Z 撤销）`, "success");
+    }
+  });
+
+  // Batch Find & Replace (Ctrl+H)
+  const updateFindMatchPreview = () => {
+    const findStr = document.getElementById("inpFindText").value;
+    const scope = document.getElementById("selFindScope").value;
+    const caseSens = document.getElementById("chkFindCase").checked;
+    const lbl = document.getElementById("lblFindCount");
+    if (!findStr) {
+      lbl.textContent = "请输入要查找的词句…";
+      return;
+    }
+    const escaped = findStr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(escaped, caseSens ? "g" : "gi");
+    let count = 0;
+    state.subtitles.forEach((c) => {
+      if (scope === "both" || scope === "zh") {
+        count += ((c.zh || "").match(re) || []).length;
+      }
+      if (scope === "both" || scope === "en") {
+        count += ((c.en || "").match(re) || []).length;
+      }
+    });
+    lbl.textContent = count > 0 ? `共找到 ${count} 处匹配项` : "未找到匹配项";
+  };
+
+  document.getElementById("btnOpenFindReplace")?.addEventListener("click", () => {
+    updateFindMatchPreview();
+    openModal("modalFindReplace");
+    setTimeout(() => document.getElementById("inpFindText")?.focus(), 40);
+  });
+
+  ["inpFindText", "selFindScope", "chkFindCase"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", updateFindMatchPreview);
+    document.getElementById(id)?.addEventListener("change", updateFindMatchPreview);
+  });
+
+  document.getElementById("btnRunReplaceAll")?.addEventListener("click", () => {
+    const findStr = document.getElementById("inpFindText").value;
+    const repStr = document.getElementById("inpReplaceText").value;
+    const scope = document.getElementById("selFindScope").value;
+    const caseSens = document.getElementById("chkFindCase").checked;
+    if (!findStr) {
+      showToast("请先输入查找内容");
+      return;
+    }
+    const escaped = findStr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(escaped, caseSens ? "g" : "gi");
+    let replacedTotal = 0;
+    let snapshotDone = false;
+
+    state.subtitles.forEach((c) => {
+      if (scope === "both" || scope === "zh") {
+        const matches = ((c.zh || "").match(re) || []).length;
+        if (matches > 0) {
+          if (!snapshotDone) {
+            pushUndoSnapshot();
+            snapshotDone = true;
+          }
+          c.zh = (c.zh || "").replace(re, repStr);
+          replacedTotal += matches;
+        }
+      }
+      if (scope === "both" || scope === "en") {
+        const matches = ((c.en || "").match(re) || []).length;
+        if (matches > 0) {
+          if (!snapshotDone) {
+            pushUndoSnapshot();
+            snapshotDone = true;
+          }
+          c.en = (c.en || "").replace(re, repStr);
+          replacedTotal += matches;
+        }
+      }
+    });
+
+    if (replacedTotal > 0) {
+      renderTable();
+      updateSubtitleOverlay();
+      drawWaveform();
+      updateFindMatchPreview();
+      showToast(`已成功批量替换 ${replacedTotal} 处内容！（支持 Ctrl+Z 撤销）`, "success");
+    } else {
+      showToast("没有找到可替换的匹配内容");
+    }
+  });
+
   // Smart auto-fix ZH/EN column swap if user imported or pasted swapped columns
   document.getElementById("btnSwapAllLang").addEventListener("click", () => {
     const cjkRe = /[\u4e00-\u9fff]/;
@@ -1854,6 +2097,13 @@ function bindTransportAndTableTools() {
   window.addEventListener("keydown", (e) => {
     const tag = (e.target && e.target.tagName) || "";
     const inInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+    // Ctrl+H opens Find & Replace globally (even when inside inputs!)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+      e.preventDefault();
+      document.getElementById("btnOpenFindReplace")?.click();
+      return;
+    }
 
     // Undo / Redo when not editing inside an input, or Ctrl+Z globally
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !inInput) {
@@ -1926,6 +2176,52 @@ async function initBootstrap() {
     if (data.settings) {
       populateSettingsUI(data.settings);
     }
+    if (data.autosave_meta && data.autosave_meta.count > 0) {
+      const btnRestore = document.getElementById("btnRestoreAutosave");
+      if (btnRestore) {
+        btnRestore.textContent = `📂 恢复上次草稿 (${data.autosave_meta.count}句 · ${data.autosave_meta.saved_at})`;
+        btnRestore.classList.remove("hidden");
+        btnRestore.onclick = async () => {
+          const r = await window.pywebview.api.load_autosave_draft();
+          if (r.ok && r.draft) {
+            pushUndoSnapshot();
+            if (r.draft.style) {
+              state.style = extractStyleFromPreset(r.draft.style);
+              syncStyleControlsFromState();
+            }
+            if (r.draft.subtitles && r.draft.subtitles.length) {
+              state.subtitles = r.draft.subtitles;
+              state.selectedIdx = 0;
+            }
+            if (r.draft.video_path) {
+              const vRes = await window.pywebview.api.load_video_by_path(r.draft.video_path);
+              if (vRes && vRes.ok) await handleVideoLoadedResponse(vRes);
+            }
+            btnRestore.classList.add("hidden");
+            renderTable();
+            updateSubtitleOverlay();
+            drawWaveform();
+            showToast(`已成功恢复上次草稿（共 ${state.subtitles.length} 句）！`, "success");
+          }
+        };
+      }
+    }
+
+    // Start 25-second background crash-recovery autosave loop
+    setInterval(async () => {
+      if (!state.dirtyForAutosave || !hasApi() || !state.subtitles.length) return;
+      state.dirtyForAutosave = false;
+      const res = await window.pywebview.api.save_autosave_draft({
+        video_name: state.videoName,
+        style: state.style,
+        subtitles: state.subtitles,
+      });
+      if (res && res.ok) {
+        const stEl = document.getElementById("autosaveStatusText");
+        if (stEl) stEl.textContent = `💾 已自动暂存 ${res.saved_at}`;
+        document.getElementById("btnRestoreAutosave")?.classList.add("hidden");
+      }
+    }, 25000);
   } else {
     state.presets = [
       {
