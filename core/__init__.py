@@ -1,0 +1,1 @@
+"""EasySub Studio core package."""

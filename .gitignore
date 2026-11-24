@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# User local runtime config & caches (never commit API keys)
+settings.json
+webview_cache/
+easysub_studio_cache/
+.env
+
+# OS files
+Thumbs.db
+.DS_Store
