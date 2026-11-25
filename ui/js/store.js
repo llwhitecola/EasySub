@@ -10,7 +10,7 @@ export const DEMO_SUBTITLES = [
 export const DEFAULT_STYLE = {
   order: "zh_top",
   margin_v: 15,
-  line_gap: 4,
+  line_gap: 8,
   blur: 2.0,
   ycbcr_matrix: "None",
   box_mode: false,

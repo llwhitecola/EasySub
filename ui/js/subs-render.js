@@ -21,20 +21,24 @@ const probe = document.createElement("canvas").getContext("2d");
 const metricsCache = new Map();
 const installedCache = new Map();
 
-const FONT_ALIASES = {
-  "ITCAvantGardePro-Demi": ["ITCAvantGardePro-Demi", "ITC Avant Garde Gothic Pro", "Century Gothic"],
-  "Cronos Pro": ["Cronos Pro", "Cronos Pro Subhead"],
-  "Avenir Next W1G": ["Avenir Next W1G", "Avenir Next"],
-};
+const FONT_ALIASES = new Map([
+  ["ITCAvantGardePro-Demi", ["ITC Avant Garde Gothic Pro"]],
+  ["Cronos Pro", ["Cronos Pro Subhead"]],
+  ["Avenir Next W1G", ["Avenir Next"]],
+]);
+
+const fontFamilyNames = (name) => [name, ...(FONT_ALIASES.get(name) ?? [])];
+const quoteFontFamily = (name) => `"${String(name).replace(/["\\]/g, "")}"`;
 
 export function fontStack(name) {
-  const names = FONT_ALIASES[name] || [name];
+  const names = fontFamilyNames(name);
+  if (name === "ITCAvantGardePro-Demi") names.push("Century Gothic");
   return [...names, "WenQuanYi Micro Hei", "Microsoft YaHei", "Segoe UI"]
-    .map((n) => `"${String(n).replace(/["\\]/g, "")}"`)
+    .map(quoteFontFamily)
     .join(", ") + ", sans-serif";
 }
 
-/** Is this font on the machine? Compared by glyph widths against two generic fallbacks. */
+/** Check the configured name and its family aliases against generic font metrics. */
 export function isFontInstalled(name) {
   if (installedCache.has(name)) return installedCache.get(name);
   const text = "永和字幕 AaGgQq 0123 Wmi";
@@ -42,8 +46,11 @@ export function isFontInstalled(name) {
     probe.font = `72px ${family}`;
     return probe.measureText(text).width;
   };
-  const safe = `"${String(name).replace(/["\\]/g, "")}"`;
-  const ok = ["monospace", "serif", "sans-serif"].some((g) => Math.abs(width(`${safe}, ${g}`) - width(g)) > 0.4);
+  const names = fontFamilyNames(name).map(quoteFontFamily);
+  const ok = ["monospace", "serif", "sans-serif"].some((fallback) => {
+    const baseline = width(fallback);
+    return names.some((family) => Math.abs(width(`${family}, ${fallback}`) - baseline) > 0.4);
+  });
   installedCache.set(name, ok);
   return ok;
 }

@@ -25,7 +25,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，紧凑行距、93%窄字宽与柔边羽化(\\blur2)",
         "order": "zh_top",
         "margin_v": 15,
-        "line_gap": 4,
+        "line_gap": 8,
         "blur": 2.0,
         "ycbcr_matrix": "None",
         "box_mode": False,
