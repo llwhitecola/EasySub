@@ -17,6 +17,7 @@ from typing import Any, Callable
 import numpy as np
 from PIL import Image
 
+from core.lyrics_fx import expand_ass_vc_for_libass
 from core.subtitles import (
     export_ass,
     format_ass_timestamp,
@@ -519,6 +520,7 @@ def convert_ass_content_to_sup(
             + "\n".join(synth_event_lines)
             + "\n"
         )
+        full_synth_ass = expand_ass_vc_for_libass(full_synth_ass)
         synthetic_ass.write_text(full_synth_ass, encoding="utf-8-sig")
 
         cmd = [
@@ -670,7 +672,8 @@ def export_editor_subtitles_to_sup(
     title: str = "EasySub Blu-ray PGS",
     progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    ass_content = export_ass(subtitles, style=style, lang_mode=lang_mode, title=title)
+    # The PGS converter renders one static picture per active interval.
+    ass_content = export_ass(subtitles, style=style, lang_mode=lang_mode, title=title, include_fades=False)
     return convert_ass_content_to_sup(
         ass_content,
         out_sup_path=out_sup_path,

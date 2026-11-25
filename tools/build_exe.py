@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HIDDEN = ["core.media_ai", "core.sup_export", "faster_whisper", "ctranslate2", "onnxruntime", "httpx", "PIL.Image", "cv2"]
+HIDDEN = ["core.lyrics_fx", "core.media_ai", "core.sup_export", "faster_whisper", "ctranslate2", "onnxruntime", "httpx", "PIL.Image", "cv2"]
 COLLECT_ALL = ["webview", "pythonnet", "clr_loader"]
 EXCLUDE = ["av", "cryptography", "hf_xet", "PIL._avif"]
 

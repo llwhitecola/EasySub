@@ -212,6 +212,7 @@
 .sp-head .btn { margin-left: auto; }
 
 .preset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; }
+.preset-grid.for-cue .preset-del { display: none; }
 .preset { position: relative; display: flex; flex-direction: column; gap: 7px; cursor: pointer; border-radius: var(--r-l); transition: transform var(--t-2) var(--spring); }
 .preset:active { transform: scale(0.985); }
 .preset-thumb { display: block; width: 100%; aspect-ratio: 16 / 8.6; border-radius: 10px; background: #2b333b; box-shadow: 0 0 0 1px var(--line); transition: box-shadow var(--t-2) var(--ease); }

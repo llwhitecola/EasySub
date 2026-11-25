@@ -10,6 +10,12 @@ import math
 import re
 from pathlib import Path
 from typing import Any
+from core.lyrics_fx import (
+    VALID_ANIM_IDS,
+    build_ass_anim_tag,
+    build_ass_gradient_tag,
+    is_valid_gradient,
+)
 
 # Regex to detect CJK characters (Chinese/Japanese/Korean ideographs)
 CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]")
@@ -133,65 +139,60 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         },
     },
     {
-        "id": "art_house",
-        "name": "文艺电影极简白",
-        "desc": "宋体/衬线质感 + 纤细描边与柔和投影，适合文艺片、Vlog 与短片",
+        "id": "lyrics_yellow",
+        "name": "歌词 · 经典亮黄",
+        "desc": "蜘蛛体双语歌词，亮黄纯色、2.5 柔边，中英间距 9，副字幕降亮 20%",
         "order": "zh_top",
-        "margin_v": 54,
-        "line_gap": 5,
+        "margin_v": 30,
+        "line_gap": 9,
+        "blur": 2.5,
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.5,
         "zh": {
-            "font": "SimSun",
-            "size": 52,
-            "color": "#FAF8F5",
-            "outline_color": "#1E1E1E",
-            "outline": 1.8,
-            "shadow": 2.2,
-            "bold": True,
-            "italic": False,
+            "style_name": "Lyrics", "font": "【嵐】蜘蛛体", "size": 68,
+            "color": "#FFF200", "outline_color": "#463C37",
+            "outline": 3.0, "shadow": 1.0, "scale_x": 100, "margin_l": 10, "margin_r": 10,
+            "bold": False, "italic": False,
         },
         "en": {
-            "font": "Georgia",
-            "size": 33,
-            "color": "#E7E5E4",
-            "outline_color": "#1E1E1E",
-            "outline": 1.5,
-            "shadow": 1.8,
-            "bold": False,
-            "italic": True,
+            "style_name": "LyricsENG", "font": "【嵐】蜘蛛体", "size": 45,
+            "color": "#CCC200", "outline_color": "#463C37",
+            "outline": 3.0, "shadow": 1.0, "scale_x": 100, "margin_l": 10, "margin_r": 10,
+            "bold": False, "italic": False,
         },
     },
     {
-        "id": "ted_talk",
-        "name": "TED 公开课高对比",
-        "desc": "醒目纯白中文 + 活力暖橙英文，适合公开课、访谈、科技评测",
+        "id": "lyrics_shinkai",
+        "name": "歌词 · 新海诚黄昏",
+        "desc": "蜘蛛体暮紫×晚霞橙四角渐变，镜头聚焦动效、150ms 淡入淡出与副字幕降亮 20%",
         "order": "zh_top",
-        "margin_v": 46,
-        "line_gap": 4,
+        "margin_v": 30,
+        "line_gap": 9,
+        "blur": 2.5,
+        "fade_in_ms": 150,
+        "fade_out_ms": 150,
+        "anim": "shinkai_focus",
+        "anim_mult": 1.0,
+        "sub_anim": True,
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.5,
         "zh": {
-            "font": "Microsoft YaHei",
-            "size": 56,
-            "color": "#FFFFFF",
-            "outline_color": "#0F172A",
-            "outline": 3.0,
-            "shadow": 1.6,
-            "bold": True,
-            "italic": False,
+            "style_name": "Lyrics", "font": "【嵐】蜘蛛体", "size": 68,
+            "color": "#AC6782",
+            "gradient": ["#764EB2", "#EE8A3A", "#EE8A3A", "#764EB2"],
+            "outline_color": "#000A1A", "back_color": "#1A0010",
+            "back_opacity": 0.40, "outline": 2.8, "shadow": 1.5, "scale_x": 100,
+            "margin_l": 10, "margin_r": 10, "bold": False, "italic": False,
         },
         "en": {
-            "font": "Segoe UI",
-            "size": 35,
-            "color": "#FDBA74",
-            "outline_color": "#0F172A",
-            "outline": 2.4,
-            "shadow": 1.4,
-            "bold": True,
-            "italic": False,
+            "style_name": "LyricsENG", "font": "【嵐】蜘蛛体", "size": 45,
+            "color": "#8A5268",
+            "gradient": ["#5E3E8E", "#BE6E2E", "#BE6E2E", "#5E3E8E"],
+            "outline_color": "#000A1A", "back_color": "#1A0010",
+            "back_opacity": 0.40, "outline": 2.8, "shadow": 1.5, "scale_x": 100,
+            "margin_l": 10, "margin_r": 10, "bold": False, "italic": False,
         },
     },
     {
@@ -1561,7 +1562,18 @@ def _cue_style_override(item: dict[str, Any]) -> dict[str, Any]:
         patch["order"] = source["order"]
     if isinstance(source.get("box_mode"), bool):
         patch["box_mode"] = source["box_mode"]
-    for key in ("margin_v", "line_gap", "blur"):
+    if isinstance(source.get("sub_anim"), bool):
+        patch["sub_anim"] = source["sub_anim"]
+    if isinstance(source.get("anim"), str) and source["anim"] in VALID_ANIM_IDS:
+        patch["anim"] = source["anim"]
+    if type(source.get("anim_mult")) in (int, float) and math.isfinite(source["anim_mult"]) and source["anim_mult"] > 0:
+        patch["anim_mult"] = float(source["anim_mult"])
+    if isinstance(source.get("box_color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", source["box_color"]):
+        patch["box_color"] = source["box_color"]
+    for key in ("fade_in_ms", "fade_out_ms"):
+        if type(source.get(key)) is int and source[key] >= 0:
+            patch[key] = source[key]
+    for key in ("margin_v", "line_gap", "blur", "box_opacity"):
         value = source.get(key)
         if type(value) in (int, float) and math.isfinite(value):
             patch[key] = value
@@ -1569,15 +1581,19 @@ def _cue_style_override(item: dict[str, Any]) -> dict[str, Any]:
         cfg = source.get(lang)
         if not isinstance(cfg, dict):
             continue
-        fields = {
-            key: cfg[key] for key in ("size", "scale_x", "outline", "shadow")
+        fields: dict[str, Any] = {
+            key: cfg[key] for key in ("size", "scale_x", "outline", "shadow", "margin_l", "margin_r", "back_opacity")
             if type(cfg.get(key)) in (int, float) and math.isfinite(cfg[key])
         }
         fields.update({key: cfg[key] for key in ("bold", "italic") if isinstance(cfg.get(key), bool)})
         fields.update({
-            key: cfg[key] for key in ("color", "outline_color")
+            key: cfg[key] for key in ("color", "outline_color", "secondary_color", "back_color")
             if isinstance(cfg.get(key), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", cfg[key])
         })
+        if "gradient" in cfg and cfg["gradient"] is None:
+            fields["gradient"] = None
+        elif is_valid_gradient(cfg.get("gradient")):
+            fields["gradient"] = list(cfg["gradient"])
         font = cfg.get("font")
         if isinstance(font, str) and font.strip() and "\r" not in font and "\n" not in font:
             fields["font"] = font
@@ -1657,11 +1673,53 @@ def _motion_segments(item: dict[str, Any]):
         yield start, end, position(start), position(end)
 
 
+def _ass_fade(
+    layout: dict[str, Any],
+    item: dict[str, Any],
+    segment: tuple[float, float] | None = None,
+) -> str:
+    def fade_ms(key: str) -> int:
+        value = layout.get(key, 0)
+        return value if type(value) is int and value > 0 else 0
+
+    fade_in, fade_out = fade_ms("fade_in_ms"), fade_ms("fade_out_ms")
+    if not (fade_in or fade_out):
+        return ""
+    cue_start = round(item["start_ms"] / 10) * 10
+    cue_end = round(item["end_ms"] / 10) * 10
+    duration = cue_end - cue_start
+    if duration <= 0:
+        return ""
+    scale = min(1, duration / (fade_in + fade_out))
+    fade_in, fade_out = int(fade_in * scale), int(fade_out * scale)
+    if segment is None:
+        return f"\\fad({fade_in},{fade_out})"
+
+    # Sample the cue's fade at each motion segment boundary. A segment must
+    # continue the existing ramp instead of starting a new fade.
+    start, end = (round(ms / 10) * 10 - cue_start for ms in segment)
+    if start == 0 and end == duration:
+        return f"\\fad({fade_in},{fade_out})"
+    hold_start = max(start, min(end, fade_in))
+    hold_end = max(start, min(end, duration - fade_out))
+
+    def alpha(t: int) -> int:
+        opacity = min(1, t / fade_in if fade_in else 1, (duration - t) / fade_out if fade_out else 1)
+        return round(255 * (1 - max(0, opacity)))
+
+    a1, a2, a3 = alpha(start), alpha(hold_start), alpha(end)
+    if a1 == a2 == a3 == 0:
+        return ""
+    return f"\\fade({a1},{a2},{a3},0,{hold_start - start},{hold_end - start},{end - start})"
+
+
 def export_ass(
     subtitles: list[dict[str, Any]],
     style: dict[str, Any],
     lang_mode: str = "bilingual",
     title: str = "Default Aegisub file",
+    *,
+    include_fades: bool = True,
 ) -> str:
     """
     Compile subtitles, per-cue styles and tracked positions into a 1920x1080 ASS file.
@@ -1771,19 +1829,29 @@ def export_ass(
         box_pad = 12 if box_mode else 0
         blur_val = float(layout.get("blur", 2.0))
         blur_tag = f"\\blur{fmt_num(blur_val)}" if not box_mode and blur_val > 0 else ""
-        top_prefix = f"{{{blur_tag}}}" if blur_tag else ""
+
+        def wrap_tags(*tags: str) -> str:
+            joined = "".join(t for t in tags if t)
+            return f"{{{joined}}}" if joined else ""
 
         if tracked:
             if zh and lang_mode != "en_only":
-                name = style_name({**base_zh, **override.get("zh", {})}, layout) if override else base_zh_name
+                tr_cfg = {**base_zh, **override.get("zh", {})} if override else base_zh
+                name = style_name(tr_cfg, layout) if override else base_zh_name
+                tr_grad = "" if box_mode else build_ass_gradient_tag(tr_cfg.get("gradient"))
                 for t1, t2, p1, p2 in _motion_segments(item):
                     start, end = format_ass_timestamp(t1), format_ass_timestamp(t2)
                     if start == end:
                         continue
                     tag = f"\\pos({p1})" if p1 == p2 else f"\\move({p1},{p2})"
-                    events.append(f"Dialogue: 3,{start},{end},{name},,0,0,0,,{{\\an2{tag}{blur_tag}}}{zh}")
+                    fade_tag = _ass_fade(layout, item, (t1, t2)) if include_fades else ""
+                    events.append(f"Dialogue: 3,{start},{end},{name},,0,0,0,,{{\\an2{tag}{blur_tag}{fade_tag}{tr_grad}}}{zh}")
             continue
 
+        fade_tag = _ass_fade(layout, item) if include_fades else ""
+        anim_id = layout.get("anim", "none") if (include_fades and not box_mode) else "none"
+        main_anim_tag = build_ass_anim_tag(anim_id, layout.get("anim_mult", 1.0))
+        sub_anim_tag = main_anim_tag if layout.get("sub_anim", True) is not False else ""
         start_str = format_ass_timestamp(item["start_ms"])
         end_str = format_ass_timestamp(item["end_ms"])
 
@@ -1795,7 +1863,10 @@ def export_ass(
             elif lang_mode == "en_only":
                 parts_top = [en] if en else []
             if parts_top:
-                name = style_name({**base_note, **override.get("zh", {})}, layout, alignment=8) if override else base_note_name
+                note_cfg = {**base_note, **override.get("zh", {})} if override else base_note
+                name = style_name(note_cfg, layout, alignment=8) if override else base_note_name
+                note_grad = "" if box_mode else build_ass_gradient_tag(note_cfg.get("gradient"))
+                top_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, note_grad)
                 joined_top = "\\N".join(parts_top)
                 events.append(
                     f"Dialogue: 2,{start_str},{end_str},{name},,0,0,0,,{top_prefix}{joined_top}"
@@ -1806,15 +1877,19 @@ def export_ass(
         en_cfg = {**base_en, **override.get("en", {})} if override else base_en
         zh_style_name = style_name(zh_cfg, layout) if override else base_zh_name
         en_style_name = style_name(en_cfg, layout) if override else base_en_name
+        zh_grad_tag = "" if box_mode else build_ass_gradient_tag(zh_cfg.get("gradient"))
+        en_grad_tag = "" if box_mode else build_ass_gradient_tag(en_cfg.get("gradient"))
 
         if lang_mode == "zh_only":
             if not zh:
                 continue
-            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}")
+            zh_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
+            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{zh_prefix}{zh}")
         elif lang_mode == "en_only":
             if not en:
                 continue
-            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
+            en_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
+            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{en_prefix}{en}")
         else:
             if zh and en:
                 zh_size_val = float(zh_cfg.get("size", 70))
@@ -1840,11 +1915,13 @@ def export_ass(
                             )
                         ),
                     )
+                    upper_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
+                    lower_prefix = wrap_tags(fade_tag, blur_tag, sub_anim_tag, en_grad_tag)
                     events.append(
-                        f"Dialogue: 1,{start_str},{end_str},{zh_style_name},,0,0,{top_mv},,{top_prefix}{zh}"
+                        f"Dialogue: 1,{start_str},{end_str},{zh_style_name},,0,0,{top_mv},,{upper_prefix}{zh}"
                     )
                     events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}"
+                        f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{lower_prefix}{en}"
                     )
                 else:
                     bot_lines = estimate_wrapped_lines(zh, zh_size_val, zh_scale_x, zh_margin_lr)
@@ -1861,16 +1938,20 @@ def export_ass(
                             )
                         ),
                     )
+                    upper_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
+                    lower_prefix = wrap_tags(fade_tag, blur_tag, sub_anim_tag, zh_grad_tag)
                     events.append(
-                        f"Dialogue: 1,{start_str},{end_str},{en_style_name},,0,0,{top_mv},,{top_prefix}{en}"
+                        f"Dialogue: 1,{start_str},{end_str},{en_style_name},,0,0,{top_mv},,{upper_prefix}{en}"
                     )
                     events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}"
+                        f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{lower_prefix}{zh}"
                     )
             elif zh:
-                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}")
+                zh_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
+                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{zh_prefix}{zh}")
             elif en:
-                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
+                en_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
+                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{en_prefix}{en}")
 
     styles_text = "\n".join(style_lines)
     header = f"""[Script Info]

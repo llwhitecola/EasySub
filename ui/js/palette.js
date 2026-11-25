@@ -10,6 +10,7 @@ import {
 } from "./cues.js";
 import { openImport } from "./importer.js";
 import { openSmartFix } from "./smartfix.js";
+import { openLyrics } from "./lyrics.js";
 import { openAi } from "./ai.js";
 import { openExport, openSup } from "./exporter.js";
 import { openFind } from "./find.js";
@@ -51,6 +52,9 @@ const COMMANDS = [
   ["只看时间重叠的句子", "chongdie overlap shaixuan cd", "layers", "", () => filterTo("overlap")],
   ["显示全部句子", "quanbu all qb", "tidy", "", () => filterTo("")],
   ["智能精修", "zhineng jingxiu smart fix duanju sdh znjx", "spark", "", openSmartFix],
+  ["歌词特效工坊 · 创作引导", "geci texiao yindao lyrics mv ost gctx", "music", "", () => openLyrics("guide")],
+  ["歌词特效工坊 · 精细调节", "geci jingxi jianbian gradient vc anim daoyan", "music", "", () => openLyrics("fine")],
+  ["字幕叙事美学手册", "meixue shouce daoyan handbook zmmx", "book", "", () => openLyrics("handbook")],
   ["美剧标点清洗", "biaodian qingxi punctuation bd", "punct", "", cleanPunctuation],
   ["中英纠偏分栏", "jiupian swap fenlan jp", "swap", "", fixSwappedColumns],
   ["按时间排序", "paixu sort px", "sort", "", sortByTime],

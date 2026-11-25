@@ -18,6 +18,7 @@ import { initFind } from "./find.js";
 import { applyPrefs, initShell, showTab } from "./shell.js";
 import { initPalette } from "./palette.js";
 import { initSmartFix, openSmartFix } from "./smartfix.js";
+import { initLyrics, openLyrics } from "./lyrics.js";
 import { initPulse } from "./pulse.js";
 import { initAura } from "./aura.js";
 import { addCueAt, cleanPunctuation, clearAll, fixSwappedColumns, markEndNext, markStart, shiftAll, sortByTime } from "./cues.js";
@@ -28,10 +29,35 @@ const AUTOSAVE_MS = 25000;
 const OFFLINE_PRESETS = [
   { id: "us_drama_default", name: "美剧双语经典", desc: "银灰白中文 + 暖沙金英文", ...structuredClone(DEFAULT_STYLE) },
   {
-    id: "cinema_classic", name: "经典蓝光亮白", desc: "纯白中文 + 浅灰英文",
-    order: "zh_top", margin_v: 42, line_gap: 4, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
-    zh: { font: "Microsoft YaHei", size: 58, color: "#FFFFFF", outline_color: "#111827", outline: 2.4, shadow: 1.6, scale_x: 100, bold: true, italic: false },
-    en: { font: "Segoe UI", size: 36, color: "#E2E8F0", outline_color: "#111827", outline: 1.8, shadow: 1.4, scale_x: 100, bold: false, italic: false },
+    id: "cinema_classic", name: "影院经典黄白", desc: "暖鹅黄中文 + 纯白英文，醒目高对比",
+    order: "zh_top", margin_v: 46, line_gap: 4, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
+    zh: { font: "Microsoft YaHei", size: 58, color: "#FACC15", outline_color: "#090D16", outline: 2.8, shadow: 1.8, scale_x: 100, bold: true, italic: false },
+    en: { font: "Segoe UI", size: 35, color: "#F8FAFC", outline_color: "#090D16", outline: 2.2, shadow: 1.5, scale_x: 100, bold: true, italic: false },
+  },
+  {
+    id: "doc_immersive_box", name: "纪录片黑底沉浸盒", desc: "半透明圆润黑底条，白底亮画面也清晰可读",
+    order: "zh_top", margin_v: 50, line_gap: 6, blur: 0, box_mode: true, box_color: "#0F172A", box_opacity: 0.72,
+    zh: { font: "Microsoft YaHei", size: 52, color: "#F8FAFC", outline_color: "#0F172A", outline: 2.2, shadow: 0, scale_x: 100, bold: true, italic: false },
+    en: { font: "Segoe UI", size: 32, color: "#CBD5E1", outline_color: "#0F172A", outline: 1.8, shadow: 0, scale_x: 100, bold: false, italic: false },
+  },
+  {
+    id: "english_learner", name: "英语学习主英辅中", desc: "英文大字在上、中文辅助在下",
+    order: "en_top", margin_v: 44, line_gap: 5, blur: 1.5, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+    zh: { font: "WenQuanYi Micro Hei", size: 38, color: "#CBD5E1", outline_color: "#0F172A", outline: 2.0, shadow: 1.2, scale_x: 95, bold: false, italic: false },
+    en: { font: "Avenir Next W1G", size: 52, color: "#FEF08A", outline_color: "#0F172A", outline: 2.8, shadow: 1.6, scale_x: 98, bold: true, italic: false },
+  },
+  {
+    id: "lyrics_yellow", name: "歌词 · 经典亮黄", desc: "蜘蛛体双语歌词，亮黄纯色、2.5 柔边，中英间距 9",
+    order: "zh_top", margin_v: 30, line_gap: 9, blur: 2.5, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+    zh: { style_name: "Lyrics", font: "【嵐】蜘蛛体", size: 68, color: "#FFF200", outline_color: "#463C37", outline: 3.0, shadow: 1.0, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
+    en: { style_name: "LyricsENG", font: "【嵐】蜘蛛体", size: 45, color: "#CCC200", outline_color: "#463C37", outline: 3.0, shadow: 1.0, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
+  },
+  {
+    id: "lyrics_shinkai", name: "歌词 · 新海诚黄昏", desc: "暮紫×晚霞橙四角渐变、镜头聚焦动效与 150ms 淡入淡出，副字幕降亮 20%",
+    order: "zh_top", margin_v: 30, line_gap: 9, blur: 2.5, fade_in_ms: 150, fade_out_ms: 150, anim: "shinkai_focus", anim_mult: 1.0, sub_anim: true,
+    box_mode: false, box_color: "#000000", box_opacity: 0.5,
+    zh: { style_name: "Lyrics", font: "【嵐】蜘蛛体", size: 68, color: "#AC6782", gradient: ["#764EB2", "#EE8A3A", "#EE8A3A", "#764EB2"], outline_color: "#000A1A", back_color: "#1A0010", back_opacity: 0.4, outline: 2.8, shadow: 1.5, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
+    en: { style_name: "LyricsENG", font: "【嵐】蜘蛛体", size: 45, color: "#8A5268", gradient: ["#5E3E8E", "#BE6E2E", "#BE6E2E", "#5E3E8E"], outline_color: "#000A1A", back_color: "#1A0010", back_opacity: 0.4, outline: 2.8, shadow: 1.5, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
   },
 ];
 
@@ -41,7 +67,7 @@ function bindToolbars() {
   byId("btnAddCue").addEventListener("click", () => addCueAt(state.currentTimeMs));
   for (const b of $$("[data-shift]")) b.addEventListener("click", () => shiftAll(Number(b.dataset.shift)));
 
-  const tidy = { fix: openSmartFix, punct: cleanPunctuation, pair: () => openImport("pair"), swap: fixSwappedColumns, sort: sortByTime, clear: clearAll };
+  const tidy = { fix: openSmartFix, lyrics: () => openLyrics("guide"), punct: cleanPunctuation, pair: () => openImport("pair"), swap: fixSwappedColumns, sort: sortByTime, clear: clearAll };
   for (const b of $$("#oneClick [data-do]")) {
     const label = $("span", b);
     const name = label?.textContent;
@@ -142,6 +168,7 @@ async function boot() {
   initShell();
   initPalette();
   initSmartFix();
+  initLyrics();
   initPulse();
   bindToolbars();
   watchPixelRatio();

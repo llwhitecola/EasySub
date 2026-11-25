@@ -11,7 +11,8 @@
 
 import { hexToRgba } from "./util.js";
 import { trimmed } from "./store.js";
-import { resolveCueStyle } from "./cue-style.js";
+import { cueKinetic, resolveCueStyle } from "./cue-style.js";
+import { parseHex } from "./lyrics-data.js";
 
 const PLAY_W = 1920;
 const PLAY_H = 1080;
@@ -21,6 +22,39 @@ const BLUR_SIGMA = 0.849;
 const probe = document.createElement("canvas").getContext("2d");
 const metricsCache = new Map();
 const installedCache = new Map();
+const gradientTileCache = new Map();
+const glyphScratch = document.createElement("canvas");
+const glyphCtx = glyphScratch.getContext("2d");
+
+function bilinearTile(corners) {
+  const key = corners.join("|");
+  let tile = gradientTileCache.get(key);
+  if (tile) return tile;
+  const N = 32;
+  tile = document.createElement("canvas");
+  tile.width = N;
+  tile.height = N;
+  const tctx = tile.getContext("2d");
+  const img = tctx.createImageData(N, N);
+  const [tl, tr, bl, br] = corners.map(parseHex);
+  const d = img.data;
+  for (let y = 0; y < N; y++) {
+    const v = y / (N - 1);
+    for (let x = 0; x < N; x++) {
+      const u = x / (N - 1);
+      const off = (y * N + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        d[off + c] = Math.round(
+          (1 - u) * (1 - v) * tl[c] + u * (1 - v) * tr[c] + (1 - u) * v * bl[c] + u * v * br[c],
+        );
+      }
+      d[off + 3] = 255;
+    }
+  }
+  tctx.putImageData(img, 0, 0);
+  gradientTileCache.set(key, tile);
+  return tile;
+}
 
 const FONT_ALIASES = new Map([
   ["ITCAvantGardePro-Demi", ["ITC Avant Garde Gothic Pro"]],
@@ -148,7 +182,7 @@ export function lineRatio(text, cfg) {
 
 /* ---------- drawing one event: returns its bounds ---------- */
 function drawEvent(ctx, text, cfg, opt) {
-  const { W, H, k, blur, box, marginV, top } = opt;
+  const { W, H, k, blur, box, marginV, top, scale = 1 } = opt;
   const weight = cfg.bold ? 700 : 400;
   const stack = fontStack(cfg.font || "Microsoft YaHei");
   const m = metrics(stack, weight, cfg.italic);
@@ -159,6 +193,7 @@ function drawEvent(ctx, text, cfg, opt) {
   const mr = num(cfg.margin_r, 11) * k;
 
   ctx.save();
+  ctx.globalAlpha *= opt.opacity;
   ctx.font = `${cfg.italic ? "italic " : ""}${weight} ${em}px ${stack}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
@@ -167,6 +202,12 @@ function drawEvent(ctx, text, cfg, opt) {
 
   const lines = text.split("\n").flatMap((t) => wrap(ctx, t, Math.max(20, (W - ml - mr) / sx)));
   const cx = opt.x ?? (ml + (W - mr)) / 2;
+  const pivotY = top ? marginV * k : H - marginV * k;
+  if (Math.abs(scale - 1) > 0.001) {
+    ctx.translate(cx, pivotY);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -pivotY);
+  }
   const baselines = lines.map((_, i) =>
     top
       ? marginV * k + i * lineH + m.asc * em
@@ -223,8 +264,48 @@ function drawEvent(ctx, text, cfg, opt) {
     if (outline <= 0.02) ctx.filter = soft;
   }
 
-  ctx.fillStyle = cfg.color || "#FFFFFF";
-  each((line) => ctx.fillText(line, 0, 0));
+  const grad = Array.isArray(cfg.gradient) && cfg.gradient.length === 4 ? cfg.gradient : null;
+  if (!grad || (grad[0] === grad[1] && grad[1] === grad[2] && grad[2] === grad[3])) {
+    ctx.fillStyle = grad ? grad[0] : (cfg.color || "#FFFFFF");
+    each((line) => ctx.fillText(line, 0, 0));
+  } else if (grad[0] === grad[1] && grad[2] === grad[3]) {
+    each((line) => {
+      const g = ctx.createLinearGradient(0, -m.asc * em, 0, m.desc * em);
+      g.addColorStop(0, grad[0]);
+      g.addColorStop(1, grad[2]);
+      ctx.fillStyle = g;
+      ctx.fillText(line, 0, 0);
+    });
+  } else if (grad[0] === grad[2] && grad[1] === grad[3]) {
+    each((line) => {
+      const hw = Math.max(8, ctx.measureText(line).width / 2);
+      const g = ctx.createLinearGradient(-hw, 0, hw, 0);
+      g.addColorStop(0, grad[0]);
+      g.addColorStop(1, grad[1]);
+      ctx.fillStyle = g;
+      ctx.fillText(line, 0, 0);
+    });
+  } else {
+    const tile = bilinearTile(grad);
+    const rawH = Math.max(12, Math.ceil((m.asc + m.desc) * em + 8));
+    const baseY = Math.ceil(m.asc * em + 4);
+    each((line) => {
+      const rawW = Math.max(12, Math.ceil(ctx.measureText(line).width + em * 0.3));
+      if (glyphScratch.width < rawW) glyphScratch.width = rawW;
+      if (glyphScratch.height < rawH) glyphScratch.height = rawH;
+      glyphCtx.globalCompositeOperation = "source-over";
+      glyphCtx.clearRect(0, 0, rawW, rawH);
+      glyphCtx.font = ctx.font;
+      glyphCtx.textAlign = "center";
+      glyphCtx.textBaseline = "alphabetic";
+      glyphCtx.fillStyle = "#ffffff";
+      glyphCtx.fillText(line, rawW / 2, baseY);
+      glyphCtx.globalCompositeOperation = "source-in";
+      glyphCtx.imageSmoothingEnabled = true;
+      glyphCtx.drawImage(tile, 0, 0, rawW, rawH);
+      ctx.drawImage(glyphScratch, 0, 0, rawW, rawH, -rawW / 2, -baseY, rawW, rawH);
+    });
+  }
   const widest = Math.max(...lines.map((l) => ctx.measureText(l).width)) * sx;
   ctx.restore();
   return {
@@ -242,10 +323,11 @@ const union = (a, b) =>
  * Draw one cue onto a W×H canvas (device pixels). Returns its bounds, or null.
  * zoom > 1 magnifies around the bottom centre: used by the preset thumbnails.
  */
-export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 1, anchor }) {
+export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 1, anchor, timeMs }) {
   style = resolveCueStyle(style, cue);
   const k = (H / PLAY_H) * zoom;
-  const blur = style.box_mode ? 0 : num(style.blur, 0);
+  const mainKin = cueKinetic(style, cue, timeMs, false);
+  const subKin = cueKinetic(style, cue, timeMs, true);
   let zh = trimmed(cue.zh);
   let en = trimmed(cue.en);
   if (langMode === "zh_only") en = "";
@@ -256,7 +338,7 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
   if (anchor) {
     if (!zh) return null;
     return drawEvent(ctx, zh, style.zh, {
-      W, H, k, blur, box, marginV: (1 - anchor[1]) * PLAY_H, top: false, x: anchor[0] * W,
+      W, H, k, ...mainKin, box, marginV: (1 - anchor[1]) * PLAY_H, top: false, x: anchor[0] * W,
     });
   }
 
@@ -267,23 +349,23 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
       ctx,
       text,
       style.zh,
-      { W, H, k, blur, box, marginV: Math.max(0, num(style.margin_v, 40)), top: true },
+      { W, H, k, ...mainKin, box, marginV: Math.max(0, num(style.margin_v, 40)), top: true },
     );
   }
 
   const mv = Math.max(0, Math.trunc(num(style.margin_v, 15)));
-  const opt = (marginV) => ({ W, H, k, blur, box, marginV, top: false });
+  const opt = (marginV, kin) => ({ W, H, k, ...kin, box, marginV, top: false });
 
   if (zh && en) {
     const lowerIsEn = zhTop;
     const upperMv = upperMargin(style, lowerIsEn ? en : zh, lowerIsEn);
     // Layer 0 (lower line) first, then Layer 1 (upper line), as libass composites them.
-    const lower = drawEvent(ctx, lowerIsEn ? en : zh, lowerIsEn ? style.en : style.zh, opt(mv));
-    const upper = drawEvent(ctx, lowerIsEn ? zh : en, lowerIsEn ? style.zh : style.en, opt(upperMv));
+    const lower = drawEvent(ctx, lowerIsEn ? en : zh, lowerIsEn ? style.en : style.zh, opt(mv, subKin));
+    const upper = drawEvent(ctx, lowerIsEn ? zh : en, lowerIsEn ? style.zh : style.en, opt(upperMv, mainKin));
     return union(lower, upper);
   }
-  if (zh) return drawEvent(ctx, zh, style.zh, opt(mv));
-  if (en) return drawEvent(ctx, en, style.en, opt(mv));
+  if (zh) return drawEvent(ctx, zh, style.zh, opt(mv, mainKin));
+  if (en) return drawEvent(ctx, en, style.en, opt(mv, mainKin));
   return null;
 }
 

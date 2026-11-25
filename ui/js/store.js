@@ -154,6 +154,7 @@ export function normalizeCues(list) {
         if (override) cue.style_override = override;
         else delete cue.style_override;
       }
+      if (!cue.style_override || typeof cue.style_preset_id !== "string") delete cue.style_preset_id;
       if (cue.motion !== undefined) {
         const path = normalizeMotion(cue.motion);
         if (path.length > 1) {
@@ -238,7 +239,13 @@ const HISTORY_MAX = 80;
 let undoStack = [];
 let redoStack = [];
 
-export const capture = () => JSON.stringify({ subs: state.subtitles, sel: state.selectedIdx, demo: state.isDemo });
+export const capture = ({ includeStyle = false } = {}) =>
+  JSON.stringify({
+    subs: state.subtitles,
+    sel: state.selectedIdx,
+    demo: state.isDemo,
+    ...(includeStyle ? { style: state.style, presetId: state.activePresetId } : {}),
+  });
 
 /** Push a snapshot taken before the change. */
 export function pushHistory(label, snapshot = capture()) {
@@ -261,6 +268,11 @@ function restore(snapshot) {
   state.subtitles = data.subs;
   state.isDemo = Boolean(data.demo);
   state.selectedIdx = Math.max(0, Math.min(data.sel, state.subtitles.length - 1));
+  if (data.style) {
+    state.style = data.style;
+    if (data.presetId !== undefined) state.activePresetId = data.presetId;
+    emit("style", {});
+  }
   state.dirty = true;
   syncDuration();
   emit("cues", { bulk: true });
@@ -270,14 +282,16 @@ function restore(snapshot) {
 export function undo() {
   const entry = undoStack.pop();
   if (!entry) return null;
-  redoStack.push({ label: entry.label, snapshot: capture() });
+  const hasStyle = Boolean(JSON.parse(entry.snapshot).style);
+  redoStack.push({ label: entry.label, snapshot: capture({ includeStyle: hasStyle }) });
   restore(entry.snapshot);
   return entry.label;
 }
 export function redo() {
   const entry = redoStack.pop();
   if (!entry) return null;
-  undoStack.push({ label: entry.label, snapshot: capture() });
+  const hasStyle = Boolean(JSON.parse(entry.snapshot).style);
+  undoStack.push({ label: entry.label, snapshot: capture({ includeStyle: hasStyle }) });
   restore(entry.snapshot);
   return entry.label;
 }
@@ -297,7 +311,7 @@ export function clearDemo() {
 
 const sameCue = (a, b) => ["zh", "en", "start_ms", "end_ms"].every((k) => a[k] === b[k]) &&
   isTop(a) === isTop(b) && JSON.stringify(a.motion) === JSON.stringify(b.motion) &&
-  JSON.stringify(a.style_override) === JSON.stringify(b.style_override);
+  JSON.stringify(a.style_override) === JSON.stringify(b.style_override) && a.style_preset_id === b.style_preset_id;
 export const sameCues = (a, b) => a.length === b.length && a.every((c, i) => sameCue(c, b[i]));
 
 /** Replace all cues as one undoable step. */

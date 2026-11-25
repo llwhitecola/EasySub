@@ -127,6 +127,10 @@ function bindMeta(row, cue, idx) {
   } else if (first) {
     r.flag.textContent = FLAG_TEXT[first];
     r.flag.className = `flag ${first === "missing" ? "soft" : "warn"}`;
+  } else if (cue.style_override) {
+    const isLyricFx = Boolean(cue.style_override.zh?.gradient || (cue.style_override.anim && cue.style_override.anim !== "none") || cue.style_override.fade_in_ms || cue.style_override.fade_out_ms);
+    r.flag.textContent = isLyricFx ? "歌词特效" : "独立样式";
+    r.flag.className = "flag fx";
   } else {
     const cps = zhLen(cue) / Math.max(0.2, ms / 1000);
     r.flag.textContent = `${cps.toFixed(1)} 字/秒`;

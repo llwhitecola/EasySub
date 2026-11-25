@@ -13,16 +13,18 @@ import { pause, seekTo } from "./player.js";
 
 const ZH_FONTS = [
   ["WenQuanYi Micro Hei", "文泉驿微米黑（美剧默认）"],
+  ["【嵐】蜘蛛体", "【嵐】蜘蛛体（歌词）"],
   ["Microsoft YaHei", "微软雅黑（清晰百搭）"],
   ["ZhunYuan", "准圆"],
   ["Source Han Sans CN", "思源黑体"],
   ["SimHei", "黑体"],
-  ["SimSun", "宋体（文艺电影感）"],
+  ["SimSun", "宋体"],
   ["KaiTi", "楷体（温润纪录片）"],
   ["DengXian", "等线（现代极简）"],
 ];
 const EN_FONTS = [
   ["ITCAvantGardePro-Demi", "ITC Avant Garde（美剧默认）"],
+  ["【嵐】蜘蛛体", "【嵐】蜘蛛体（歌词）"],
   ["Cronos Pro", "Cronos Pro（天空英语）"],
   ["Avenir Next W1G", "Avenir Next W1G"],
   ["Segoe UI", "Segoe UI（现代无衬线）"],
@@ -48,6 +50,11 @@ export function styleFromPreset(p) {
   for (const k of ["id", "name", "desc", "is_custom"]) delete s[k];
   s.line_gap ??= 4;
   s.blur ??= 0.8;
+  s.fade_in_ms ??= 0;
+  s.fade_out_ms ??= 0;
+  s.anim ??= "none";
+  s.anim_mult ??= 1;
+  s.sub_anim ??= true;
   s.ycbcr_matrix ??= "None";
   s.box_color ??= "#0F172A";
   s.box_opacity ??= 0.6;
@@ -58,6 +65,7 @@ export function styleFromPreset(p) {
     s[lang].shadow ??= 1;
     s[lang].outline_color ??= "#000000";
     s[lang].color ??= "#FFFFFF";
+    s[lang].gradient = Array.isArray(s[lang].gradient) && s[lang].gradient.length === 4 ? [...s[lang].gradient] : null;
     s[lang].size ??= 50;
     s[lang].font ??= "Microsoft YaHei";
   }
@@ -93,7 +101,7 @@ function styleChanged(from) {
   invalidate("presetstate");
 }
 
-function writeCueStyle(cue, override, field, from) {
+function writeCueStyle(cue, override, field, from, presetId = cue.style_preset_id) {
   const now = performance.now();
   if (!field || lastStyleEdit?.cue !== cue || lastStyleEdit.field !== field ||
       lastStyleEdit.mark !== historyMark() || now - lastStyleEdit.at > 850) {
@@ -102,6 +110,8 @@ function writeCueStyle(cue, override, field, from) {
   lastStyleEdit = field ? { cue, field, mark: historyMark(), at: now } : null;
   if (override) cue.style_override = override;
   else delete cue.style_override;
+  if (override && presetId) cue.style_preset_id = presetId;
+  else delete cue.style_preset_id;
   state.dirty = true;
   emit("cue", { idx: state.selectedIdx, what: "style", from });
 }
@@ -111,17 +121,22 @@ function setStyleField(key, value, lang, from) {
   if (!cue) {
     const target = lang ? state.style[lang] : state.style;
     target[key] = value;
+    if (key === "color" && lang) target.gradient = null;
     styleChanged(from);
     return;
   }
   const effective = resolveCueStyle(state.style, cue);
-  if ((lang ? effective[lang] : effective)[key] === value) return;
+  if ((lang ? effective[lang] : effective)[key] === value && !(key === "color" && lang && effective[lang]?.gradient)) return;
   const inherited = inheritedCueStyle(state.style, cue);
   const override = { ...cue.style_override };
   if (lang) override[lang] = { ...override[lang] };
   const patch = lang ? override[lang] : override;
   if (value === (lang ? inherited[lang] : inherited)[key]) delete patch[key];
   else patch[key] = value;
+  if (key === "color" && lang) {
+    if (inherited[lang]?.gradient) patch.gradient = null;
+    else delete patch.gradient;
+  }
   writeCueStyle(cue, normalizeCueStyle(override), lang ? `${lang}.${key}` : key, from);
 }
 
@@ -143,6 +158,31 @@ function paintScope() {
 }
 
 /* ---------- preset wall ---------- */
+export function presetForCue(preset, cue) {
+  const style = styleFromPreset(preset);
+  const motion = isMotion(cue);
+  if (motion || isStaticNote(cue)) {
+    delete style.en;
+    delete style.line_gap;
+  }
+  if (motion) {
+    delete style.order;
+    delete style.margin_v;
+  }
+  for (const lang of ["zh", "en"]) {
+    const text = style[lang];
+    if (!text) continue;
+    text.secondary_color ??= "#000000";
+    text.back_color ??= "#000000";
+    text.back_opacity ??= 1;
+    text.margin_l ??= 10;
+    text.margin_r ??= 11;
+    text.bold ??= false;
+    text.italic ??= false;
+  }
+  return normalizeCueStyle(style);
+}
+
 export function renderPresets() {
   const grid = byId("presetGrid");
   grid.replaceChildren(
@@ -185,17 +225,25 @@ function paintThumbs() {
 }
 
 function paintPresetState() {
+  const cue = scopedCue();
+  let matched;
+  if (cue?.style_override) {
+    const patch = stable(cue.style_override);
+    const matches = (p) => stable(presetForCue(p, cue)) === patch;
+    const chosen = state.presets.find((p) => p.id === cue.style_preset_id);
+    matched = chosen && matches(chosen) ? chosen : state.presets.find(matches);
+  }
   for (const card of $$(".preset")) {
-    const on_ = card.dataset.id === state.activePresetId;
+    const on_ = card.dataset.id === (cue ? matched?.id : state.activePresetId);
     card.setAttribute("aria-checked", String(on_));
     card.classList.toggle("active", on_);
   }
   const p = activePreset();
   const mod = isModified();
   const name = p ? p.name : "自定义样式";
-  byId("presetNow").textContent = name;
-  byId("presetModified").hidden = !mod;
-  byId("btnStyleReset").hidden = !mod;
+  byId("presetNow").textContent = cue ? (matched?.name || (cue.style_override ? "本句自定义样式" : "沿用全局样式")) : name;
+  byId("presetModified").hidden = Boolean(cue) || !mod;
+  byId("btnStyleReset").hidden = Boolean(cue) || !mod;
   byId("footPreset").textContent = mod ? `${name}（已调整）` : name;
 }
 
@@ -282,7 +330,9 @@ function syncControls() {
   const s = resolveCueStyle(state.style, cue);
   byId("styleScope").querySelector('[data-value="cue"]').hidden = !selected;
   scopeSeg.set(scope);
-  byId("globalStylePresets").hidden = Boolean(cue);
+  byId("presetSave").hidden = Boolean(cue);
+  byId("presetGrid").classList.toggle("for-cue", Boolean(cue));
+  byId("presetGrid").setAttribute("aria-label", cue ? "本句模板" : "全局模板");
   byId("langSeg").hidden = Boolean(cue);
   byId("orderSeg").hidden = motion;
   byId("faderMargin").hidden = motion;
@@ -295,6 +345,7 @@ function syncControls() {
   byId("styleLangCards").classList.toggle("single", note || motion);
   ui.zh.title.textContent = note || motion ? "标注文字" : "中文";
   paintScope();
+  invalidate("presetstate");
   orderSeg.set(s.order === "en_top" ? "en_top" : "zh_top");
   langSeg.set(state.langMode);
   byId("chkBox").checked = Boolean(s.box_mode);
@@ -351,6 +402,15 @@ export function initStyles() {
   const pick = (card) => {
     const p = state.presets.find((x) => x.id === card.dataset.id);
     if (!p) return;
+    const cue = scopedCue();
+    if (cue) {
+      const patch = presetForCue(p, cue);
+      if (cue.style_preset_id !== p.id || stable(patch) !== stable(cue.style_override)) {
+        writeCueStyle(cue, patch, undefined, undefined, p.id);
+      }
+      syncControls();
+      return;
+    }
     applyStyle(p, p.id);
     state.dirty = true;
   };
@@ -358,6 +418,7 @@ export function initStyles() {
     const card = e.target.closest(".preset");
     if (!card) return;
     if (e.target.closest(".preset-del")) {
+      if (scopedCue()) return;
       const p = state.presets.find((x) => x.id === card.dataset.id);
       if (p) removePreset(p);
       return;
@@ -444,6 +505,7 @@ export function initStyles() {
     if (what === "pos") syncControls();
     if (what === "style") {
       paintScope();
+      invalidate("presetstate");
       if (from === "stage") ui.margin.set(resolveCueStyle(state.style, cue).margin_v);
     }
   });

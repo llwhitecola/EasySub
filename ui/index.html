@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="css/dock.css" />
   <link rel="stylesheet" href="css/reel.css" />
   <link rel="stylesheet" href="css/layers.css" />
+  <link rel="stylesheet" href="css/lyrics.css" />
 </head>
 <body>
   <!-- Icon sprite · 24 grid, 1.65 stroke -->
@@ -77,6 +78,8 @@
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M3 12c2.5-4.3 5.5-6.5 9-6.5s6.5 2.2 9 6.5c-2.5 4.3-5.5 6.5-9 6.5S5.5 16.3 3 12Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
       <symbol id="i-keys" viewBox="0 0 24 24"><rect x="3" y="6.5" width="18" height="11.5" rx="2"/><path d="M6.5 10h.1M10 10h.1M13.5 10h.1M17.2 10h.1M8 14.5h8"/></symbol>
       <symbol id="i-disk" viewBox="0 0 24 24"><path d="M5 4.5h11l3.5 3.5v11a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5Z"/><path d="M8 4.5v4.5h7V4.5M8 19.5V14h8v5.5"/></symbol>
+      <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17.5V6.2l10-2v11.3"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v16H7a2.5 2.5 0 0 0-2.5 2.5V5.5Z"/><path d="M4.5 19A2.5 2.5 0 0 1 7 16.5h12.5M8.5 7.5h7M8.5 11h5"/></symbol>
       <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--c1)"/><stop offset=".55" style="stop-color:var(--c2)"/><stop offset="1" style="stop-color:var(--c3)"/></linearGradient>
     </defs>
   </svg>
@@ -223,6 +226,7 @@
 
             <div class="oneclick" id="oneClick" role="toolbar" aria-label="一键整理">
               <button class="magic" type="button" data-do="fix" data-tip="智能精修：断句孤行、听障音效、时间重叠、漏译，一次处理"><i class="orb-dot"><i class="orb"></i></i>智能精修</button>
+              <button type="button" data-do="lyrics" data-tip="歌词特效工坊：导演级四角渐变、叙事动效与 ♪ 音符插曲行批量打标"><svg class="i"><use href="#i-music"/></svg><span>歌词特效</span></button>
               <button type="button" data-do="punct" data-tip="美剧标点清洗：句中逗号改空格，去句末句号，问号叹号转半角"><svg class="i"><use href="#i-punct"/></svg><span>标点清洗</span></button>
               <button type="button" data-do="pair" data-tip="合并中英行：把分开的中文行、英文行按时间配成双语"><svg class="i"><use href="#i-pair"/></svg><span>合并中英</span></button>
               <button type="button" data-do="swap" data-tip="纠偏分栏：自动把填反的中英文归位"><svg class="i"><use href="#i-swap"/></svg><span>中英纠偏</span></button>
@@ -289,14 +293,15 @@
                 <button class="btn btn-ghost btn-sm" id="btnCueStyleReset" type="button" hidden>清除本句样式</button>
               </div>
             </section>
-            <section class="sp" id="globalStylePresets">
+            <section class="sp">
               <header class="sp-head">
                 <h4>模板</h4>
                 <span class="sp-now"><b id="presetNow"></b><em id="presetModified" hidden>已调整</em></span>
+                <button class="btn btn-sm btn-lyrics-open" id="btnOpenLyrics" type="button" data-tip="打开歌词特效工坊：16 套导演美学包、四角渐变色板、叙事动效与美学手册"><svg class="i"><use href="#i-music"/></svg>歌词特效工坊</button>
                 <button class="btn btn-ghost btn-sm" id="btnStyleReset" type="button" hidden data-tip="恢复成模板原来的样子"><svg class="i"><use href="#i-reset"/></svg>还原</button>
               </header>
               <div class="preset-grid" id="presetGrid" role="radiogroup" aria-label="双语模板"></div>
-              <div class="preset-save">
+              <div class="preset-save" id="presetSave">
                 <input class="field field-sm" id="inpPresetName" type="text" maxlength="24" placeholder="给当前样式起个名字" />
                 <button class="btn btn-sm" id="btnSavePreset" type="button" data-tip="把现在的字体、颜色和版式收藏成新模板"><svg class="i"><use href="#i-star"/></svg>存为模板</button>
               </div>
@@ -572,6 +577,153 @@
         <div class="progress" id="fixProgress" hidden><div id="fixDial"></div><p></p></div>
       </div>
       <footer class="sheet-foot"><span class="foot-hint">所有修改可以一次撤销。</span><button class="btn btn-ghost" type="button" data-close>关闭</button><button class="btn btn-primary btn-lg" type="button" id="btnFixRun" data-autofocus><svg class="i"><use href="#i-spark"/></svg><span>开始精修</span></button></footer>
+    </div>
+  </div>
+
+  <!-- Lyrics Effects Workshop -->
+  <div class="modal" id="modalLyrics" role="dialog" aria-modal="true" aria-labelledby="ttlLyrics" hidden>
+    <div class="sheet sheet-lyrics">
+      <header class="sheet-head">
+        <div class="lyr-title-blk">
+          <h2 id="ttlLyrics">歌词特效工坊</h2>
+          <span class="head-note">叙事中心 · 形式服务内容</span>
+        </div>
+        <div class="seg lyr-mode-seg" id="lyricsModeSeg" role="tablist" aria-label="歌词工坊模式">
+          <button type="button" role="tab" data-value="guide">创作引导</button>
+          <button type="button" role="tab" data-value="fine">精细调节</button>
+          <button type="button" role="tab" data-value="handbook">美学手册</button>
+        </div>
+        <button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button>
+      </header>
+
+      <div class="lyr-stage-wrap" id="lyricsStageWrap">
+        <div class="lyr-stage" id="lyricsStageBox" data-tone="dark">
+          <canvas id="lyricsPreviewCanvas" aria-label="歌词特效实时预览"></canvas>
+          <div class="lyr-stage-top">
+            <div class="lyr-spec-meta" id="lyricsSpecMeta"></div>
+            <div class="lyr-stage-acts">
+              <div class="lyr-tones" id="lyricsToneSwitch" role="radiogroup" aria-label="预览底色">
+                <button class="sw-dark" type="button" role="radio" aria-checked="true" data-tone="dark" data-tip="暗场底色"></button>
+                <button class="sw-mid" type="button" role="radio" aria-checked="false" data-tone="mid" data-tip="中间调底色"></button>
+                <button class="sw-light" type="button" role="radio" aria-checked="false" data-tone="light" data-tip="亮场底色"></button>
+              </div>
+              <button class="lyr-replay" id="btnLyricsReplay" type="button" data-tip="重新播放一次淡入与镜头动效"><svg class="i"><use href="#i-replay"/></svg>重播动效</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet-body">
+        <!-- Pane 1: Creative Guide -->
+        <div class="lyr-pane" id="lyricsPaneGuide">
+          <div class="lyr-q-box">
+            <div class="lyr-q-row"><span class="lyr-q-lbl">① 影片核心题材</span><div class="lyr-pills" id="guideGenreRow" role="radiogroup" aria-label="影片核心题材"></div></div>
+            <div class="lyr-q-row"><span class="lyr-q-lbl">② 影片核心情绪</span><div class="lyr-pills" id="guideMoodRow" role="radiogroup" aria-label="影片核心情绪"></div></div>
+            <div class="lyr-q-row"><span class="lyr-q-lbl">③ 整体剪辑节奏</span><div class="lyr-pills" id="guideRhythmRow" role="radiogroup" aria-label="整体剪辑节奏"></div></div>
+          </div>
+
+          <div class="lyr-sec">
+            <div class="lyr-sec-head"><h4>按匹配度推荐的大师美学包</h4><span class="lyr-sec-note">点击卡片实时预览动效，也可一键转入精细微调</span></div>
+            <div class="lyr-rec-grid" id="guideRecCards" role="radiogroup" aria-label="推荐美学包"></div>
+          </div>
+
+          <div class="lyr-opt-bar">
+            <label class="lbl-inline"><span>歌词字体</span><select class="field field-sm" id="guideFont"></select></label>
+            <label class="switch" data-tip="英文副字幕同步继承主字幕的渐变、描边、阴影与动效"><input type="checkbox" id="guideSubInherit" checked /><span>副字幕继承美学</span></label>
+            <label class="switch" data-tip="专业双语规范：副字幕亮度自动压低 20%，主次层次更清晰"><input type="checkbox" id="guideSubDim" checked /><span>副字幕降亮 20%</span></label>
+            <label class="lbl-inline" style="margin-left:auto"><span>HDR 适配</span><select class="field field-sm" id="guideHdr"></select></label>
+          </div>
+        </div>
+
+        <!-- Pane 2: Fine-Tuning -->
+        <div class="lyr-pane" id="lyricsPaneFine" hidden>
+          <div class="lyr-sec">
+            <div class="lyr-sec-head">
+              <h4>导演美学完整包（一键预填）</h4>
+              <div class="lyr-pills" id="fineThemeFilter"></div>
+            </div>
+            <div class="lyr-bundle-grid" id="fineBundleGrid" role="radiogroup" aria-label="导演美学预设"></div>
+            <p class="lyr-sec-note" id="fineBundleNote"></p>
+          </div>
+
+          <div class="lyr-conflict" id="lyricsConflict" hidden>
+            <svg class="i"><use href="#i-alert"/></svg>
+            <div><b id="lyricsConflictTitle"></b><small id="lyricsConflictBody"></small></div>
+          </div>
+
+          <div class="lyr-sec">
+            <div class="lyr-sec-head">
+              <h4>四角渐变与色彩风格（\1vc）</h4>
+              <div class="seg" id="fineGradGroupSeg" role="radiogroup" aria-label="色板分组">
+                <button type="button" role="radio" data-value="director">导演叙事色板 (16)</button>
+                <button type="button" role="radio" data-value="mv">经典 / MV 缤纷色板 (22)</button>
+              </div>
+            </div>
+            <div class="lyr-grad-grid" id="fineGradGrid" role="radiogroup" aria-label="渐变色板"></div>
+          </div>
+
+          <div class="lyr-grid-4">
+            <label class="lbl"><span>叙事动效 (\t)</span><select class="field field-sm" id="lyrAnim"></select></label>
+            <label class="lbl"><span>影片节奏联动</span><select class="field field-sm" id="lyrRhythm"></select></label>
+            <label class="lbl"><span>淡入淡出 (\fad)</span><select class="field field-sm" id="lyrFade"></select></label>
+            <label class="lbl"><span>柔边强度 (\blur)</span><select class="field field-sm" id="lyrBlur"></select></label>
+          </div>
+
+          <div class="lyr-grid-4">
+            <label class="lbl"><span>描边配色 (\3c)</span><select class="field field-sm" id="lyrOutline"></select></label>
+            <label class="lbl"><span>阴影配色 (\4c)</span><select class="field field-sm" id="lyrShadow"></select></label>
+            <label class="lbl"><span>歌词字体</span><select class="field field-sm" id="lyrFont"></select></label>
+            <label class="lbl"><span>双语间距</span><select class="field field-sm" id="lyrGap"></select></label>
+          </div>
+
+          <div class="lyr-opt-bar">
+            <label class="switch"><input type="checkbox" id="lyrSubInherit" checked /><span>副字幕继承美学</span></label>
+            <label class="switch"><input type="checkbox" id="lyrSubDim" checked /><span>副字幕降亮 20%</span></label>
+            <label class="lbl-inline" style="margin-left:auto"><span>HDR 适配</span><select class="field field-sm" id="lyrHdr"></select></label>
+          </div>
+        </div>
+
+        <!-- Pane 3: Narrative Aesthetics Handbook -->
+        <div class="lyr-pane" id="lyricsPaneHandbook" hidden>
+          <div class="hb-head-bar">
+            <div class="seg" id="hbPageSeg" role="tablist" aria-label="手册章节">
+              <button type="button" role="tab" data-value="0">1. 底层四原则</button>
+              <button type="button" role="tab" data-value="1">2. 五大母题</button>
+              <button type="button" role="tab" data-value="2">3. 十四位导演</button>
+              <button type="button" role="tab" data-value="3">4. 红线与进阶</button>
+            </div>
+            <span class="hint" id="hbPageIndicator"></span>
+          </div>
+          <div id="hbContent"></div>
+          <div class="hb-nav-foot">
+            <button class="btn btn-sm" id="btnHbPrev" type="button">◀ 上一页</button>
+            <button class="btn btn-sm" id="btnHbNext" type="button">下一页 ▶</button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="sheet-foot lyr-foot" id="lyricsFoot">
+        <div class="lyr-target-wrap">
+          <div class="seg" id="lyricsTargetSeg" role="radiogroup" aria-label="歌词特效应用范围">
+            <button type="button" role="radio" data-value="music" data-tip="自动扫描并仅应用到含 ♪ ♫ ♬ 音符的插曲/片尾曲行">♪ 音符行 <em class="num" id="lyrMusicCount">(0)</em></button>
+            <button type="button" role="radio" data-value="cue" data-tip="仅应用到当前选中的这一句">当前句 <em class="num" id="lyrCueNo"></em></button>
+            <button type="button" role="radio" data-value="range" data-tip="应用到指定的起止句号范围（适合无音符的 OP / ED）">句号区间</button>
+            <button type="button" role="radio" data-value="global" data-tip="作为整部影片/MV 的全局模板样式">全片全局</button>
+          </div>
+          <div class="lyr-range" id="lyricsRangeWrap" hidden>
+            <span>第</span>
+            <input class="field field-sm num" id="lyrRangeFrom" type="number" min="1" value="1" aria-label="起始句号" />
+            <span>至</span>
+            <input class="field field-sm num" id="lyrRangeTo" type="number" min="1" value="1" aria-label="结束句号" />
+            <span>句</span>
+          </div>
+        </div>
+        <div class="lyr-save-box">
+          <input class="field field-sm" id="inpLyricsPresetName" type="text" maxlength="24" placeholder="模板名（可选）" />
+          <button class="btn btn-sm" id="btnLyricsSavePreset" type="button" data-tip="把当前歌词特效收藏到右侧样式面板的模板墙"><svg class="i"><use href="#i-star"/></svg>存为模板</button>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btnLyricsApply" type="button" data-autofocus><svg class="i"><use href="#i-spark"/></svg><span>应用歌词特效</span></button>
+      </footer>
     </div>
   </div>
 

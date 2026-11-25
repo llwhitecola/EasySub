@@ -8,6 +8,7 @@ import { startHero } from "./hero.js";
 import { initMotion } from "./motion.js";
 import { isMotion, motionAt, pictureRect } from "./motion-path.js";
 import { setStageMargin, stageMargin } from "./styles.js";
+import { cueNeedsTick, resolveCueStyle } from "./cue-style.js";
 
 const overlay = byId("subCanvas");
 const sceneCanvas = byId("scene");
@@ -26,7 +27,7 @@ function paintOverlay() {
 
   const topIdx = cueAt(state.currentTimeMs, true);
   const idx = cueAt(state.currentTimeMs, false);
-  const opts = { W, H, style: state.style, langMode: state.langMode };
+  const opts = { W, H, style: state.style, langMode: state.langMode, timeMs: state.currentTimeMs };
   const showMotion = state.hasRealVideo && state.langMode !== "en_only" && motionCues.some(activeMotion);
   if (topIdx >= 0) drawCue(ctx, { ...opts, cue: state.subtitles[topIdx] });
 
@@ -36,7 +37,7 @@ function paintOverlay() {
     box = drawCue(ctx, { ...opts, cue });
   } else if (showSample && topIdx < 0 && !showMotion) {
     ctx.globalAlpha = 0.9;
-    box = drawCue(ctx, { ...opts, cue: SAMPLE });
+    box = drawCue(ctx, { ...opts, cue: SAMPLE, timeMs: undefined });
     ctx.globalAlpha = 1;
   }
   if (showMotion) {
@@ -129,12 +130,19 @@ export function setSample(on) {
   invalidate("overlay");
 }
 
-// Static cues redraw on a change. Motion cues also redraw while they're active.
+// Static cues redraw on a change. Motion, fades, and kinetic animations redraw as the playhead moves.
 let activeKey = "";
 function onTime() {
+  const time = state.currentTimeMs;
+  const bottom = cueAt(time, false);
+  const top = cueAt(time, true);
+  const animating = [bottom, top].some((idx) => {
+    const cue = state.subtitles[idx];
+    return cue && cueNeedsTick(resolveCueStyle(state.style, cue), cue, time);
+  });
   const moving = motionCues.some(activeMotion);
-  const key = `${cueAt(state.currentTimeMs, false)}|${cueAt(state.currentTimeMs, true)}|${moving}`;
-  if (moving || key !== activeKey) {
+  const key = `${bottom}|${top}|${moving}|${animating}`;
+  if (moving || animating || key !== activeKey) {
     activeKey = key;
     invalidate("overlay");
   }
