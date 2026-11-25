@@ -17,7 +17,7 @@
       <div class="brand-meta">
         <div class="brand-title">
           傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.4</span>
+          <span class="badge-pro">Studio v1.4.1</span>
         </div>
         <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
           <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
@@ -168,12 +168,16 @@
               </label>
             </div>
 
-            <div class="quick-sliders-2">
-              <label class="mini-slider-field">
+            <div class="quick-sliders-3">
+              <label class="mini-slider-field" title="调节双语字幕整体距离画面底部的高度">
                 <div class="ms-head"><span>底部高度</span><b id="lblMarginV">15</b></div>
                 <input type="range" id="rngMarginV" min="5" max="180" value="15" class="slider" />
               </label>
-              <label class="mini-slider-field">
+              <label class="mini-slider-field" title="调节中英文字幕上下的垂直间隙（负值贴得更紧，正值拉得更开）">
+                <div class="ms-head"><span>中英间距</span><b id="lblLineGap">4</b></div>
+                <input type="range" id="rngLineGap" min="-8" max="28" step="1" value="4" class="slider" />
+              </label>
+              <label class="mini-slider-field" title="调节字幕描边的柔和羽化程度（\blur）">
                 <div class="ms-head"><span>柔边羽化</span><b id="lblBlur">2</b></div>
                 <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
               </label>

@@ -66,7 +66,7 @@ const state = {
   style: {
     order: "zh_top",
     margin_v: 15,
-    line_gap: 9,
+    line_gap: 4,
     blur: 2.0,
     ycbcr_matrix: "None",
     box_mode: false,
@@ -466,7 +466,7 @@ function updateSubtitleOverlay() {
 
   // 2. Render Bottom Bilingual Dialogue
   el.subtitleOverlay.style.bottom = `${Math.round(state.style.margin_v * scale)}px`;
-  el.subBoxWrap.style.gap = `${Math.max(1, Math.round(state.style.line_gap * scale))}px`;
+  el.subBoxWrap.style.gap = "0px";
 
   if (state.style.box_mode) {
     el.subBoxWrap.style.background = hexToRgba(
@@ -518,11 +518,16 @@ function updateSubtitleOverlay() {
   }
 
   if (bottomTxt) {
+    const lineGap = Number(state.style.line_gap ?? 4);
     el.subLineBottom.style.display = "block";
     el.subLineBottom.textContent = bottomTxt;
+    el.subLineBottom.style.marginTop = topTxt
+      ? `${((lineGap - 3.5) * scale).toFixed(1)}px`
+      : "0px";
     applyLineStyle(el.subLineBottom, bottomCfg, scale, state.style.box_mode, blurVal);
   } else {
     el.subLineBottom.style.display = "none";
+    el.subLineBottom.style.marginTop = "0px";
   }
 }
 
@@ -536,6 +541,7 @@ function extractStyleFromPreset(p) {
   delete copy.name;
   delete copy.desc;
   delete copy.is_custom;
+  if (copy.line_gap === undefined) copy.line_gap = 4;
   if (copy.blur === undefined) copy.blur = 0.8;
   if (copy.ycbcr_matrix === undefined) copy.ycbcr_matrix = "None";
   if (copy.zh && copy.zh.scale_x === undefined) copy.zh.scale_x = 100;
@@ -625,6 +631,10 @@ function syncStyleControlsFromState() {
   document.getElementById("rngMarginV").value = s.margin_v;
   document.getElementById("lblMarginV").textContent = s.margin_v;
 
+  const gapVal = s.line_gap ?? 4;
+  document.getElementById("rngLineGap").value = gapVal;
+  document.getElementById("lblLineGap").textContent = gapVal;
+
   const blurVal = s.blur ?? 2;
   document.getElementById("rngBlur").value = blurVal;
   document.getElementById("lblBlur").textContent = blurVal;
@@ -703,6 +713,12 @@ function bindStyleEvents() {
   document.getElementById("rngMarginV").addEventListener("input", (e) => {
     state.style.margin_v = Number(e.target.value);
     document.getElementById("lblMarginV").textContent = state.style.margin_v;
+    updateSubtitleOverlay();
+  });
+
+  document.getElementById("rngLineGap").addEventListener("input", (e) => {
+    state.style.line_gap = Number(e.target.value);
+    document.getElementById("lblLineGap").textContent = state.style.line_gap;
     updateSubtitleOverlay();
   });
 
@@ -2244,7 +2260,7 @@ async function initBootstrap() {
         id: "cinema_classic",
         name: "经典蓝光亮白",
         desc: "纯白中文 + 浅灰英文",
-        order: "zh_top", margin_v: 42, line_gap: 6, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
+        order: "zh_top", margin_v: 42, line_gap: 4, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
         zh: { font: "Microsoft YaHei", size: 58, color: "#FFFFFF", outline_color: "#111827", outline: 2.4, shadow: 1.6, scale_x: 100, bold: true, italic: false },
         en: { font: "Segoe UI", size: 36, color: "#E2E8F0", outline_color: "#111827", outline: 1.8, shadow: 1.4, scale_x: 100, bold: false, italic: false },
       },
@@ -2252,7 +2268,7 @@ async function initBootstrap() {
         id: "doc_immersive_box",
         name: "纪录片黑底盒",
         desc: "半透明暗黑衬底条",
-        order: "zh_top", margin_v: 48, line_gap: 6, blur: 0, box_mode: true, box_color: "#0F172A", box_opacity: 0.72,
+        order: "zh_top", margin_v: 48, line_gap: 4, blur: 0, box_mode: true, box_color: "#0F172A", box_opacity: 0.72,
         zh: { font: "Microsoft YaHei", size: 52, color: "#FFFFFF", outline_color: "#0F172A", outline: 1.5, shadow: 0, scale_x: 100, bold: true, italic: false },
         en: { font: "Segoe UI", size: 32, color: "#CBD5E1", outline_color: "#0F172A", outline: 1.2, shadow: 0, scale_x: 100, bold: false, italic: false },
       },
@@ -2260,7 +2276,7 @@ async function initBootstrap() {
         id: "art_house",
         name: "文艺电影极简",
         desc: "宋体衬线 + 柔和投影",
-        order: "zh_top", margin_v: 54, line_gap: 8, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        order: "zh_top", margin_v: 54, line_gap: 5, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
         zh: { font: "SimSun", size: 52, color: "#FAF8F5", outline_color: "#1E1E1E", outline: 1.8, shadow: 2.2, scale_x: 100, bold: true, italic: false },
         en: { font: "Georgia", size: 33, color: "#E7E5E4", outline_color: "#1E1E1E", outline: 1.5, shadow: 1.8, scale_x: 100, bold: false, italic: true },
       },
@@ -2268,7 +2284,7 @@ async function initBootstrap() {
         id: "ted_talk",
         name: "TED 公开课风",
         desc: "醒目纯白中文 + 暖橙英文",
-        order: "zh_top", margin_v: 46, line_gap: 6, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        order: "zh_top", margin_v: 46, line_gap: 4, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
         zh: { font: "Microsoft YaHei", size: 56, color: "#FFFFFF", outline_color: "#0F172A", outline: 3.0, shadow: 1.6, scale_x: 100, bold: true, italic: false },
         en: { font: "Segoe UI", size: 35, color: "#FDBA74", outline_color: "#0F172A", outline: 2.4, shadow: 1.4, scale_x: 100, bold: true, italic: false },
       },
@@ -2276,7 +2292,7 @@ async function initBootstrap() {
         id: "english_learner",
         name: "英语学习主英",
         desc: "英文大字在上，中文小字在下",
-        order: "en_top", margin_v: 48, line_gap: 7, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        order: "en_top", margin_v: 48, line_gap: 4, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
         zh: { font: "Microsoft YaHei", size: 36, color: "#CBD5E1", outline_color: "#0F172A", outline: 2.0, shadow: 1.2, scale_x: 100, bold: false, italic: false },
         en: { font: "Segoe UI", size: 50, color: "#FEF08A", outline_color: "#0F172A", outline: 2.8, shadow: 1.8, scale_x: 100, bold: true, italic: false },
       },

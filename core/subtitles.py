@@ -6,6 +6,7 @@ style presets, and ASS v4+ / SRT export engine.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,10 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "us_drama_default",
         "name": "美剧双语经典 (默认)",
-        "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，93%窄字宽与柔边羽化(\\blur2)，HDR/蓝光原盘同款",
+        "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，紧凑行距、93%窄字宽与柔边羽化(\\blur2)",
         "order": "zh_top",
         "margin_v": 15,
-        "line_gap": 9,
+        "line_gap": 4,
         "blur": 2.0,
         "ycbcr_matrix": "None",
         "box_mode": False,
@@ -71,7 +72,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "纯白中文 + 柔和浅灰英文，清晰描边阴影，百搭各类普通 SDR 电影剧集",
         "order": "zh_top",
         "margin_v": 42,
-        "line_gap": 6,
+        "line_gap": 4,
         "blur": 0.8,
         "ycbcr_matrix": "TV.709",
         "box_mode": False,
@@ -106,7 +107,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "半透明暗黑衬底条，即使画面纯白或背景杂乱也能丝滑阅读",
         "order": "zh_top",
         "margin_v": 48,
-        "line_gap": 6,
+        "line_gap": 4,
         "box_mode": True,
         "box_color": "#0F172A",
         "box_opacity": 0.72,
@@ -137,7 +138,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "宋体/衬线质感 + 纤细描边与柔和投影，适合文艺片、Vlog 与短片",
         "order": "zh_top",
         "margin_v": 54,
-        "line_gap": 8,
+        "line_gap": 5,
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.5,
@@ -168,7 +169,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "醒目纯白中文 + 活力暖橙英文，适合公开课、访谈、科技评测",
         "order": "zh_top",
         "margin_v": 46,
-        "line_gap": 6,
+        "line_gap": 4,
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.5,
@@ -199,7 +200,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "英文大字在上作为视觉重心，中文小字在下辅助理解，口语听力神器",
         "order": "en_top",
         "margin_v": 48,
-        "line_gap": 7,
+        "line_gap": 4,
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.5,
@@ -1161,7 +1162,7 @@ def export_ass(
     """
     order = style.get("order", "zh_top")
     margin_v = int(style.get("margin_v", 15))
-    line_gap = int(round(float(style.get("line_gap", 9))))
+    line_gap = int(round(float(style.get("line_gap", 4))))
     blur_val = float(style.get("blur", 2.0))
     ycbcr_matrix = str(style.get("ycbcr_matrix", "None"))
     box_mode = bool(style.get("box_mode", False))
@@ -1174,10 +1175,27 @@ def export_ass(
     en_cfg = style.get("en", {})
     zh_style_name = str(zh_cfg.get("style_name") or "默认文泉").replace(",", " ")
     en_style_name = str(en_cfg.get("style_name") or "Eng - ITC").replace(",", " ")
+    zh_size_val = float(zh_cfg.get("size", 70))
+    en_size_val = float(en_cfg.get("size", 47))
+    zh_scale_x = float(zh_cfg.get("scale_x", 93))
+    en_scale_x = float(en_cfg.get("scale_x", 95))
+    zh_margin_lr = int(zh_cfg.get("margin_l", 10)) + int(zh_cfg.get("margin_r", 11))
+    en_margin_lr = int(en_cfg.get("margin_l", 15)) + int(en_cfg.get("margin_r", 15))
 
     def fmt_num(val: float) -> str:
         rounded = round(val, 2)
         return str(int(rounded)) if rounded == int(rounded) else f"{rounded:g}"
+
+    def estimate_wrapped_lines(txt: str, fsize: float, sx: float, margin_lr: int) -> int:
+        avail_w = max(600.0, 1920.0 - margin_lr)
+        width_est = 0.0
+        sx_factor = max(0.5, sx / 100.0)
+        for ch in txt:
+            if ord(ch) > 0x2E7F:
+                width_est += fsize * sx_factor
+            else:
+                width_est += fsize * 0.52 * sx_factor
+        return max(1, int(math.ceil(width_est / avail_w)))
 
     def make_ass_style_line(name: str, cfg: dict[str, Any], mv_offset: int = 0) -> str:
         font = str(cfg.get("font", "WenQuanYi Micro Hei")).replace(",", " ")
@@ -1210,7 +1228,7 @@ def export_ass(
         )
 
     zh_style_line = make_ass_style_line(zh_style_name, zh_cfg, mv_offset=0)
-    en_style_line = make_ass_style_line(en_style_name, en_cfg, mv_offset=2)
+    en_style_line = make_ass_style_line(en_style_name, en_cfg, mv_offset=0)
     top_note_style_name = "注释-雅黑"
     top_note_color = hex_to_ass_color(zh_cfg.get("color", "#B7B7B7"), 1.0)
     top_note_style_line = (
@@ -1243,7 +1261,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     blur_tag = f"\\blur{fmt_num(blur_val)}" if (not box_mode and blur_val > 0) else ""
     top_prefix = f"{{{blur_tag}}}" if blur_tag else ""
-    fsvp_tag = f"\\fsvp{line_gap}" if line_gap > 0 else ""
+    bot_mv = max(0, margin_v)
+    box_pad = 12 if box_mode else 0
 
     events: list[str] = []
     for item in subtitles:
@@ -1255,7 +1274,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         end_str = format_ass_timestamp(item["end_ms"])
 
         if is_top_note:
-            # Top-screen annotation / sign row (Layer 1, Alignment 8 at top center)
+            # Top-screen annotation / sign row (Layer 2, Alignment 8 at top center)
             parts_top = [p for p in ([zh, en] if order == "zh_top" else [en, zh]) if p]
             if lang_mode == "zh_only":
                 parts_top = [zh] if zh else []
@@ -1264,31 +1283,67 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if parts_top:
                 joined_top = "\\N".join(parts_top)
                 events.append(
-                    f"Dialogue: 1,{start_str},{end_str},{top_note_style_name},,0,0,0,,{top_prefix}{joined_top}"
+                    f"Dialogue: 2,{start_str},{end_str},{top_note_style_name},,0,0,0,,{top_prefix}{joined_top}"
                 )
             continue
 
         if lang_mode == "zh_only":
             if not zh:
                 continue
-            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,0,,{top_prefix}{zh}")
+            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}")
         elif lang_mode == "en_only":
             if not en:
                 continue
-            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,0,,{top_prefix}{en}")
+            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
         else:
             if zh and en:
+                # Emit independent Layer 1 (upper) + Layer 0 (lower) events so libass/VSFilter/PGS
+                # honor exact 1px positive, zero, or negative line_gap without collision flipping!
                 if order == "zh_top":
+                    bot_lines = estimate_wrapped_lines(en, en_size_val, en_scale_x, en_margin_lr)
+                    top_mv = max(
+                        0,
+                        int(
+                            round(
+                                bot_mv
+                                + 0.75 * en_size_val
+                                + (bot_lines - 1) * en_size_val
+                                - 0.10 * zh_size_val
+                                + box_pad
+                                + line_gap
+                            )
+                        ),
+                    )
                     events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,0,,{top_prefix}{zh}\\N{{\\r{en_style_name}{fsvp_tag}{blur_tag}}}{en}"
+                        f"Dialogue: 1,{start_str},{end_str},{zh_style_name},,0,0,{top_mv},,{top_prefix}{zh}"
+                    )
+                    events.append(
+                        f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}"
                     )
                 else:
+                    bot_lines = estimate_wrapped_lines(zh, zh_size_val, zh_scale_x, zh_margin_lr)
+                    top_mv = max(
+                        0,
+                        int(
+                            round(
+                                bot_mv
+                                + 0.86 * zh_size_val
+                                + (bot_lines - 1) * zh_size_val
+                                - 0.02 * en_size_val
+                                + box_pad
+                                + line_gap
+                            )
+                        ),
+                    )
                     events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,0,,{top_prefix}{en}\\N{{\\r{zh_style_name}{fsvp_tag}{blur_tag}}}{zh}"
+                        f"Dialogue: 1,{start_str},{end_str},{en_style_name},,0,0,{top_mv},,{top_prefix}{en}"
+                    )
+                    events.append(
+                        f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}"
                     )
             elif zh:
-                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,0,,{top_prefix}{zh}")
+                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{top_prefix}{zh}")
             elif en:
-                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,0,,{top_prefix}{en}")
+                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
 
     return header + "\n".join(events) + "\n"
