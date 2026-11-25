@@ -5,6 +5,8 @@ import { cueAt, emit, invalidate, on, registerDraw, state, trimmed } from "./sto
 import { drawCue, fitCanvas } from "./subs-render.js";
 import { initScenes, setScene, setScenesActive } from "./scenes.js";
 import { startHero } from "./hero.js";
+import { initMotion } from "./motion.js";
+import { isMotion, motionAt, pictureRect } from "./motion-path.js";
 
 const overlay = byId("subCanvas");
 const sceneCanvas = byId("scene");
@@ -12,6 +14,8 @@ const sceneCanvas = byId("scene");
 const SAMPLE = { zh: "字幕样式预览 这里显示中文", en: "Subtitle preview: English goes here" };
 let showSample = false;
 let lastKey = "";
+let motionCues = [];
+const activeMotion = (cue) => cue.start_ms <= state.currentTimeMs && state.currentTimeMs < cue.end_ms;
 
 /* ---------- subtitle overlay ---------- */
 function paintOverlay() {
@@ -32,6 +36,22 @@ function paintOverlay() {
     ctx.globalAlpha = 0.9;
     box = drawCue(ctx, { ...opts, cue: SAMPLE });
     ctx.globalAlpha = 1;
+  }
+  if (motionCues.length && state.hasRealVideo && state.langMode !== "en_only") {
+    const p = pictureRect(byId("video"), W, H);
+    if (p) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(p.x, p.y, p.w, p.h);
+      ctx.clip();
+      ctx.translate(p.x, p.y);
+      for (const note of motionCues) {
+        if (!activeMotion(note)) continue;
+        const anchor = motionAt(note.motion, state.currentTimeMs);
+        if (anchor) drawCue(ctx, { ...opts, W: p.w, H: p.h, cue: note, anchor });
+      }
+      ctx.restore();
+    }
   }
   placeFrame(box, W / Math.max(1, overlay.clientWidth), idx);
   const key = `${idx}|${topIdx}`;
@@ -106,11 +126,12 @@ export function setSample(on) {
   invalidate("overlay");
 }
 
-// During playback the overlay only changes when a different cue becomes active.
+// Static cues redraw on a change. Motion cues also redraw while they're active.
 let activeKey = "";
 function onTime() {
-  const key = `${cueAt(state.currentTimeMs, false)}|${cueAt(state.currentTimeMs, true)}`;
-  if (key !== activeKey) {
+  const moving = motionCues.some(activeMotion);
+  const key = `${cueAt(state.currentTimeMs, false)}|${cueAt(state.currentTimeMs, true)}|${moving}`;
+  if (moving || key !== activeKey) {
     activeKey = key;
     invalidate("overlay");
   }
@@ -140,6 +161,7 @@ export function stageBusy(text) {
 
 export function initStage() {
   bindFrame();
+  initMotion();
   startHero();
   initScenes(sceneCanvas);
   setScenesActive(true);
@@ -166,7 +188,10 @@ export function initStage() {
 
   registerDraw("overlay", paintOverlay);
   on("time", onTime);
-  on("cues", () => invalidate("overlay"));
+  on("cues", () => {
+    motionCues = state.subtitles.filter(isMotion);
+    invalidate("overlay");
+  });
   on("cue", () => invalidate("overlay"));
   on("style", () => invalidate("overlay"));
   on("dpr", () => invalidate("overlay"));

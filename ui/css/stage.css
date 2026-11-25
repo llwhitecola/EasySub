@@ -22,6 +22,16 @@
 .has-video .stage > video { visibility: visible; }
 .has-video .scene { visibility: hidden; }
 .sub-canvas { pointer-events: none; z-index: 3; }
+.motion-surface { position: absolute; inset: 0; z-index: 6; cursor: crosshair; touch-action: none; }
+.motion-outline { position: absolute; border: 2px solid #fff; background: rgb(255 255 255 / 0.12); box-shadow: 0 0 0 1px #000; pointer-events: none; }
+.motion-picker {
+  position: absolute; z-index: 7; top: 10px; left: 12px;
+  display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px;
+  border-radius: 10px; color: #fff; background: rgb(16 20 28 / 0.87);
+}
+.motion-picker .btn, .stage-tools .motion-adjust { color: #fff; background: rgb(255 255 255 / 0.15); }
+.motion-fields { display: grid; gap: 12px; }
+.motion-fields p:empty { display: none; }
 
 /* ---------- Empty-stage prompt ---------- */
 .stage-hero {
@@ -120,6 +130,7 @@
   visibility: hidden;
   transition: opacity var(--t-2) var(--ease), visibility 0s linear var(--t-2);
 }
+.stage-busy:not(.on) { pointer-events: none; }
 .stage-busy.on { opacity: 1; visibility: visible; transition-delay: 0s; }
 .stage-busy .ring { --size: 34px; }
 

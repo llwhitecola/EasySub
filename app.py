@@ -92,6 +92,7 @@ class AppState:
         self.draft_rotated: bool = False
         self.load_seq: int = 0  # newest load request
         self.media: dict[str, Path] = {}  # id in the /media URL → file
+        self.motion_cancel: threading.Event | None = None
         self.lock = threading.Lock()
         self.task_status: dict[str, Any] = {
             "running": False,
@@ -711,6 +712,44 @@ class DesktopBridgeApi:
     def get_task_status(self) -> dict[str, Any]:
         return STATE.get_task()
 
+    def track_visual_annotation(self, request: dict[str, Any]) -> dict[str, Any]:
+        from core.motion import TrackingCancelled, track_motion
+
+        with STATE.lock:
+            path = STATE.media.get(str(request.get("media_id", "")))
+            if path is None or path != STATE.playable_path:
+                return {"ok": False, "error": "视频已经换了，请重新框选"}
+            if STATE.motion_cancel is not None:
+                return {"ok": False, "error": "正在追踪，请稍候"}
+            cancel = STATE.motion_cancel = threading.Event()
+        try:
+            result = track_motion(
+                path,
+                int(request["start_ms"]),
+                int(request["end_ms"]),
+                [float(v) for v in request["box"]],
+                [int(v) for v in request["video_size"]],
+                cancelled=lambda: cancel.is_set() or STATE.playable_path != path,
+            )
+            if cancel.is_set() or STATE.playable_path != path:
+                return {"ok": False, "cancelled": True}
+            return {"ok": True, **result}
+        except TrackingCancelled:
+            return {"ok": False, "cancelled": True}
+        except ImportError:
+            return {"ok": False, "error": "无法加载 OpenCV 追踪组件，请检查程序依赖"}
+        except Exception as exc:
+            return {"ok": False, "error": f"追踪失败：{exc}"}
+        finally:
+            with STATE.lock:
+                STATE.motion_cancel = None
+
+    def cancel_visual_annotation(self) -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.motion_cancel is not None:
+                STATE.motion_cancel.set()
+        return {"ok": True}
+
     def choose_video_file(self) -> dict[str, Any]:
         """Only show the dialog, so the UI can display progress while the file is prepared."""
         if not STATE.window:
@@ -950,6 +989,10 @@ class DesktopBridgeApi:
                         asr_cfg,
                         progress=lambda msg, pct: STATE.set_task(True, msg, pct),
                     )
+                    motion_rows = [row for row in current_subtitles if row.get("motion")]
+                    if motion_rows:
+                        subs.extend(motion_rows)
+                        subs.sort(key=lambda row: row["start_ms"])
 
                 if workflow_type in ("asr_and_translate", "translate_only"):
                     direction = options.get("direction", "en_to_zh")
@@ -1088,6 +1131,8 @@ class DesktopBridgeApi:
             return {"ok": False, "error": "后台已有任务正在运行中，请稍候…"}
         if not subtitles:
             return {"ok": False, "error": "当前字幕列表为空，请先输入或导入字幕！"}
+        if lang_mode != "en_only" and any(row.get("motion") for row in subtitles):
+            return {"ok": False, "error": "跟随标注的动态位置请使用 ASS 导出"}
 
         suffix_label = {
             "bilingual": "中英双语",

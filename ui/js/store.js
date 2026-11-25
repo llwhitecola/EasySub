@@ -1,5 +1,7 @@
 /* Application state, events, frame scheduler and undo history. */
 
+import { isMotion, normalizeMotion } from "./motion-path.js";
+
 export const DEMO_SUBTITLES = [
   { id: 1, start_ms: 600, end_ms: 3800, zh: "以前做双语字幕总要记一堆复杂代码", en: "Making bilingual subs used to mean complex tags" },
   { id: 2, start_ms: 4200, end_ms: 7800, zh: "现在点一下右侧卡片 就能切换电影级双语样式", en: "Now one click switches to cinema-grade bilingual styles" },
@@ -138,7 +140,7 @@ export function normalizeCues(list) {
     .map((c, i) => {
       const start = Math.max(0, Math.round(Number(c.start_ms) || 0));
       const end = Math.max(start + 1, Math.round(Number(c.end_ms) || start + 2000));
-      return {
+      const cue = {
         ...c,
         id: i + 1,
         start_ms: start,
@@ -146,6 +148,16 @@ export function normalizeCues(list) {
         zh: String(c.zh ?? "").replace(/\s*\r?\n\s*/g, " "),
         en: String(c.en ?? "").replace(/\s*\r?\n\s*/g, " "),
       };
+      if (cue.motion !== undefined) {
+        const path = normalizeMotion(cue.motion);
+        if (path.length > 1) {
+          cue.motion = path;
+          cue.pos = "top";
+          cue.start_ms = Math.min(path.at(-1)[0] - 1, Math.max(path[0][0], start));
+          cue.end_ms = Math.min(path.at(-1)[0], Math.max(cue.start_ms + 1, end));
+        } else delete cue.motion;
+      }
+      return cue;
     });
 }
 
@@ -170,10 +182,10 @@ export function syncDuration() {
 /** Active cue at ms; the selected cue wins when several overlap. */
 export function cueAt(ms, top = false) {
   const sel = state.subtitles[state.selectedIdx];
-  if (sel && isTop(sel) === top && ms >= sel.start_ms && ms <= sel.end_ms) return state.selectedIdx;
+  if (sel && !isMotion(sel) && isTop(sel) === top && ms >= sel.start_ms && ms <= sel.end_ms) return state.selectedIdx;
   for (let i = 0; i < state.subtitles.length; i++) {
     const c = state.subtitles[i];
-    if (isTop(c) === top && ms >= c.start_ms && ms <= c.end_ms) return i;
+    if (!isMotion(c) && isTop(c) === top && ms >= c.start_ms && ms <= c.end_ms) return i;
   }
   return -1;
 }
@@ -277,7 +289,8 @@ export function clearDemo() {
   emit("cues", { bulk: true });
 }
 
-const sameCue = (a, b) => ["zh", "en", "start_ms", "end_ms"].every((k) => a[k] === b[k]) && isTop(a) === isTop(b);
+const sameCue = (a, b) => ["zh", "en", "start_ms", "end_ms"].every((k) => a[k] === b[k]) &&
+  isTop(a) === isTop(b) && JSON.stringify(a.motion) === JSON.stringify(b.motion);
 export const sameCues = (a, b) => a.length === b.length && a.every((c, i) => sameCue(c, b[i]));
 
 /** Replace all cues as one undoable step. */

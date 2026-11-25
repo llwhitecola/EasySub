@@ -10,6 +10,7 @@ import { addTicker, capture, cueAt, emit, invalidate, isTop, on, pushHistory, re
 import { isPlaying, seekTo } from "./player.js";
 import { addCueAt, selectCue } from "./cues.js";
 import { paintRange } from "./controls.js";
+import { isMotion, trimMotionTime } from "./motion-path.js";
 
 const strip = byId("strip");
 const scroller = byId("stripScroll");
@@ -664,6 +665,7 @@ function moveDrag(x, alt) {
     return;
   }
   const cue = drag.cue;
+  if (drag.type === "move" && isMotion(cue)) return;
   if (state.subtitles[drag.idx] !== cue) return endDrag(); // the list changed under the pointer
   if (!drag.moved) {
     if (Math.abs(x - drag.downX) < 3) return;
@@ -673,10 +675,10 @@ function moveDrag(x, alt) {
   }
   if (drag.type === "resize-start") {
     const t = snap(ms - drag.grabDelta, drag.idx, alt);
-    cue.start_ms = Math.round(clamp(t, 0, Math.max(0, cue.end_ms - MIN_CUE_MS)));
+    cue.start_ms = isMotion(cue) ? trimMotionTime(cue, "start", Math.round(t)) : Math.round(clamp(t, 0, Math.max(0, cue.end_ms - MIN_CUE_MS)));
   } else if (drag.type === "resize-end") {
     const t = snap(ms - drag.grabDelta, drag.idx, alt);
-    cue.end_ms = Math.round(Math.max(t, cue.start_ms + MIN_CUE_MS));
+    cue.end_ms = isMotion(cue) ? trimMotionTime(cue, "end", Math.round(t)) : Math.round(Math.max(t, cue.start_ms + MIN_CUE_MS));
   } else {
     const dur = drag.origEnd - drag.origStart;
     const raw = Math.max(0, drag.origStart + (ms - drag.startMs));

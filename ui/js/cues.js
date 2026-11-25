@@ -5,6 +5,7 @@ import { emit, historyMark, isTop, pushHistory, reindex, replaceCues, state, syn
 import { toast } from "./feedback.js";
 import { call } from "./bridge.js";
 import { seekTo } from "./player.js";
+import { isMotion, trimMotionTime } from "./motion-path.js";
 
 /** Offer to undo the step that was just made, and only that one. */
 const undoAction = () => {
@@ -47,6 +48,7 @@ export function markStart() {
     return;
   }
   const cue = state.subtitles[state.selectedIdx];
+  if (isMotion(cue)) return setCueTime(state.selectedIdx, "start", Math.round(state.currentTimeMs));
   pushHistory("设开始时间");
   cue.start_ms = Math.round(state.currentTimeMs);
   if (cue.end_ms <= cue.start_ms + 300) cue.end_ms = cue.start_ms + 2400;
@@ -59,6 +61,7 @@ export function markEndNext() {
   if (!state.subtitles.length) return;
   const idx = state.selectedIdx;
   const cue = state.subtitles[idx];
+  if (isMotion(cue)) return setCueTime(idx, "end", Math.round(state.currentTimeMs));
   pushHistory("设结束时间");
   const now = Math.round(state.currentTimeMs);
   cue.end_ms = now > cue.start_ms + 120 ? now : cue.start_ms + 1200;
@@ -76,6 +79,7 @@ let lastNudge = null;
 export function setCueTime(idx, edge, ms, { nudge = false } = {}) {
   const cue = state.subtitles[idx];
   if (!cue || ms === null) return false;
+  if (isMotion(cue)) ms = trimMotionTime(cue, edge, ms);
   if (edge === "end" && ms <= cue.start_ms) return false;
   if (cue[`${edge}_ms`] === ms) return true;
   const now = performance.now();
@@ -90,9 +94,10 @@ export function setCueTime(idx, edge, ms, { nudge = false } = {}) {
 }
 
 export function shiftAll(deltaMs) {
-  if (!state.subtitles.length) return;
+  const cues = state.subtitles.filter((cue) => !isMotion(cue));
+  if (!cues.length) return;
   pushHistory("整体平移");
-  for (const c of state.subtitles) {
+  for (const c of cues) {
     const dur = c.end_ms - c.start_ms;
     c.start_ms = Math.max(0, c.start_ms + deltaMs);
     c.end_ms = Math.max(c.start_ms + Math.min(200, dur), c.end_ms + deltaMs);
@@ -100,7 +105,7 @@ export function shiftAll(deltaMs) {
   syncDuration();
   emit("cues", {});
   const sec = (deltaMs / 1000).toFixed(1);
-  toast(`全部字幕已平移 ${deltaMs > 0 ? "+" : ""}${sec} 秒`, { key: "shift", action: undoAction() });
+  toast(`${cues.length} 条字幕已平移 ${deltaMs > 0 ? "+" : ""}${sec} 秒`, { key: "shift", action: undoAction() });
 }
 
 /* ---------- structure ---------- */
@@ -140,6 +145,7 @@ export function mergeNext(idx) {
   const cue = state.subtitles[idx];
   const next = state.subtitles[idx + 1];
   if (!cue) return;
+  if (isMotion(cue) || isMotion(next)) return toast("跟随标注与视频画面绑定，请单独编辑");
   if (!next) {
     toast("已经是最后一句了");
     return;
@@ -157,6 +163,7 @@ export function mergeNext(idx) {
 export async function splitCue(idx) {
   const cue = state.subtitles[idx];
   if (!cue) return;
+  if (isMotion(cue)) return toast("请通过时间轴裁剪跟随标注");
   if (!trimmed(cue.zh) && !trimmed(cue.en)) {
     toast("这一句还没有文字，无法拆分");
     return;
@@ -177,6 +184,7 @@ export async function splitCue(idx) {
 export function togglePos(idx) {
   const cue = state.subtitles[idx];
   if (!cue) return;
+  if (isMotion(cue)) return toast("请在画面上校正跟随位置");
   pushHistory("切换位置");
   if (isTop(cue)) delete cue.pos;
   else cue.pos = "top";
@@ -192,6 +200,7 @@ export function togglePos(idx) {
 export async function translateCue(idx) {
   const cue = state.subtitles[idx];
   if (!cue) return;
+  if (isMotion(cue)) return toast("请在中文栏编辑跟随标注");
   if (!trimmed(cue.en) && !trimmed(cue.zh)) {
     toast("先在中文或英文任意一栏填上内容，再点智能补全");
     return;

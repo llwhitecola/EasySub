@@ -151,6 +151,11 @@
                 <div class="guides" id="guides" aria-hidden="true"><i></i><i></i></div>
                 <canvas class="sub-canvas" id="subCanvas" role="img" aria-label=""></canvas>
                 <div class="sub-frame" id="subFrame" hidden data-tip="上下拖动调整高度，双击修改文字"><b class="num"></b></div>
+                <div class="motion-surface" id="motionSurface" hidden><div class="motion-outline" id="motionOutline" hidden></div></div>
+                <div class="motion-picker" id="motionPicker" hidden>
+                  <span id="motionPickerText" role="status"></span>
+                  <button class="btn" id="btnMotionPickCancel" type="button">取消</button>
+                </div>
 
                 <div class="scene-switch" id="sceneSwitch" role="radiogroup" aria-label="预览背景明暗">
                   <button class="sw-dark" type="button" role="radio" aria-checked="true" aria-label="暗背景" data-scene="dark" data-tip="暗背景：检查暗画面上的效果"></button>
@@ -158,6 +163,8 @@
                   <button class="sw-light" type="button" role="radio" aria-checked="false" aria-label="亮背景" data-scene="light" data-tip="亮背景：检查亮白画面上的描边"></button>
                 </div>
                 <div class="stage-tools">
+                  <button class="icon-btn" id="btnMotion" type="button" aria-label="跟随标注" data-tip="跟随标注：框选路牌，让文字随画面移动" hidden><svg class="i"><use href="#i-focus"/></svg></button>
+                  <button class="btn motion-adjust" id="btnMotionAdjust" type="button" hidden>校正跟随位置</button>
                   <button class="icon-btn" id="btnGuides" type="button" aria-pressed="false" aria-label="安全框" data-tip="安全框：动作安全区与字幕安全区"><svg class="i"><use href="#i-guides"/></svg></button>
                   <button class="icon-btn" id="btnFullStage" type="button" aria-pressed="false" aria-label="专注画面" data-tip="专注画面：只显示视频" data-keys="T"><svg class="i"><use href="#i-expand"/></svg></button>
                 </div>
@@ -359,6 +366,19 @@
   </div>
 
   <!-- ================= Dialogs ================= -->
+
+  <div class="modal" id="modalMotion" role="dialog" aria-modal="true" aria-labelledby="ttlMotion" hidden>
+    <form class="sheet" id="motionForm">
+      <header class="sheet-head"><h2 id="ttlMotion">跟随标注</h2><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body motion-fields">
+        <label class="lbl"><span>标注文字</span><input class="field" id="motionText" type="text" required data-autofocus></label>
+        <label class="lbl"><span>追踪时长（秒）</span><input class="field num" id="motionDuration" type="number" min="0.1" step="0.05" required></label>
+        <p>从 <b class="num" id="motionStart"></b> 开始，目标丢失时结束。</p>
+        <p id="motionStatus" role="status"></p>
+      </div>
+      <footer class="sheet-foot"><button class="btn btn-ghost" type="button" data-close>取消</button><button class="btn btn-primary" id="btnMotionRun" type="submit">开始追踪</button></footer>
+    </form>
+  </div>
 
   <!-- Import -->
   <div class="modal" id="modalImport" role="dialog" aria-modal="true" aria-labelledby="ttlImport" hidden>

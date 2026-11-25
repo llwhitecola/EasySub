@@ -12,6 +12,7 @@ import { toast } from "./feedback.js";
 import { bindSeg } from "./controls.js";
 import { lineRatio } from "./subs-render.js";
 import { isPlaying, replayCue, seekTo } from "./player.js";
+import { isMotion } from "./motion-path.js";
 import { addCueAt, deleteCue, insertAfter, mergeNext, selectCue, setCueTime, splitCue, togglePos, translateCue } from "./cues.js";
 
 const ROW_H = 66;
@@ -98,6 +99,8 @@ function bindRow(row, idx, pos) {
   }
   setVal(r.zh, cue.zh || "");
   setVal(r.en, cue.en || "");
+  r.en.readOnly = isMotion(cue);
+  r.en.placeholder = isMotion(cue) ? "跟随标注" : "English line";
   bindMeta(row, cue, idx);
   row.classList.toggle("selected", idx === state.selectedIdx);
   row.classList.toggle("playing", idx === playingIdx);
@@ -118,7 +121,7 @@ function bindMeta(row, cue, idx) {
   r.dur.classList.toggle("warn", ms < LIMITS.minMs);
   const first = issues[0];
   if (isTop(cue)) {
-    r.flag.textContent = "顶部注释";
+    r.flag.textContent = isMotion(cue) ? "跟随标注" : "顶部注释";
     r.flag.className = "flag top";
   } else if (first) {
     r.flag.textContent = FLAG_TEXT[first];

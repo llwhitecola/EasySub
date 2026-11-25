@@ -165,7 +165,7 @@ function drawEvent(ctx, text, cfg, opt) {
   ctx.lineCap = "round";
 
   const lines = text.split("\n").flatMap((t) => wrap(ctx, t, Math.max(20, (W - ml - mr) / sx)));
-  const cx = (ml + (W - mr)) / 2;
+  const cx = opt.x ?? (ml + (W - mr)) / 2;
   const baselines = lines.map((_, i) =>
     top
       ? marginV * k + i * lineH + m.asc * em
@@ -241,7 +241,7 @@ const union = (a, b) =>
  * Draw one cue onto a W×H canvas (device pixels). Returns its bounds, or null.
  * zoom > 1 magnifies around the bottom centre: used by the preset thumbnails.
  */
-export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 1 }) {
+export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 1, anchor }) {
   const k = (H / PLAY_H) * zoom;
   const blur = style.box_mode ? 0 : num(style.blur, 0);
   let zh = trimmed(cue.zh);
@@ -249,6 +249,14 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
   if (langMode === "zh_only") en = "";
   if (langMode === "en_only") zh = "";
   const zhTop = style.order !== "en_top";
+  const box = style.box_mode ? { color: style.box_color, opacity: num(style.box_opacity, 0.6) } : null;
+
+  if (anchor) {
+    if (!zh) return null;
+    return drawEvent(ctx, zh, style.zh, {
+      W, H, k, blur, box, marginV: (1 - anchor[1]) * PLAY_H, top: false, x: anchor[0] * W,
+    });
+  }
 
   if (cue.pos === "top") {
     const text = (zhTop ? [zh, en] : [en, zh]).filter(Boolean).join("\n");
@@ -264,7 +272,6 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
     );
   }
 
-  const box = style.box_mode ? { color: style.box_color, opacity: num(style.box_opacity, 0.6) } : null;
   const mv = Math.max(0, Math.trunc(num(style.margin_v, 15)));
   const opt = (marginV) => ({ W, H, k, blur, box, marginV, top: false });
 

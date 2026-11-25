@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HIDDEN = ["core.media_ai", "core.sup_export", "faster_whisper", "ctranslate2", "onnxruntime", "httpx", "PIL.Image"]
+HIDDEN = ["core.media_ai", "core.sup_export", "faster_whisper", "ctranslate2", "onnxruntime", "httpx", "PIL.Image", "cv2"]
 COLLECT_ALL = ["webview", "pythonnet", "clr_loader"]
 EXCLUDE = ["av", "cryptography", "hf_xet", "PIL._avif"]
 
@@ -39,6 +39,8 @@ def main() -> int:
     cmd += ["--name", f"EasySubStudio-v{version}", "--icon", str(ROOT / "icon.ico")]
     cmd += ["--distpath", str(ROOT / "dist"), "--workpath", str(work), "--specpath", str(work)]
     cmd += ["--add-data", f"{ROOT / 'ui'};ui", "--add-data", f"{stamp};."]
+    opencv = Path(importlib.util.find_spec("cv2").origin).parent
+    cmd += ["--add-data", f"{opencv / 'LICENSE*.txt'};licenses/OpenCV"]
     cmd += ["--collect-data", "faster_whisper"]
     for name in COLLECT_ALL:
         cmd += ["--collect-all", name]

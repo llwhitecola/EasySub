@@ -1054,6 +1054,8 @@ def translate_subtitles(
     source_texts: list[str] = []
 
     for idx, item in enumerate(updated):
+        if item.get("motion"):
+            continue
         src_txt = (item.get(src_field) or "").strip()
         dst_txt = (item.get(dst_field) or "").strip()
         if not src_txt or not (overwrite_existing or not dst_txt):

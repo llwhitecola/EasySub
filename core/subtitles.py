@@ -844,7 +844,9 @@ def merge_two_subtitles(
         'en' -> English line timing
         'primary' -> Keep primary subtitle timing
     """
-    result = [dict(item) for item in primary_subs]
+    motion_rows = [dict(item) for item in (*primary_subs, *secondary_subs) if item.get("motion")]
+    result = [dict(item) for item in primary_subs if not item.get("motion")]
+    secondary_subs = [item for item in secondary_subs if not item.get("motion")]
     tol = max(0, int(tolerance_ms))
     matched_count = 0
 
@@ -885,6 +887,9 @@ def merge_two_subtitles(
                     "en": txt if lang_key == "en" else "",
                 }
                 result.append(new_item)
+        if motion_rows:
+            result.extend(motion_rows)
+            result.sort(key=lambda item: (item["start_ms"], item["end_ms"]))
         final_list = reindex_subtitles(result)
         if return_stats:
             return final_list, {"matched_count": matched_count, "unmatched_secondary": max(0, len(secondary_subs) - matched_count)}
@@ -958,6 +963,7 @@ def merge_two_subtitles(
             )
 
     result.extend(unmatched_secondary)
+    result.extend(motion_rows)
     result.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
     # When align_mode == 'time', automatically absorb 1-to-N split-sentence orphans whose timestamps overlap!
     if align_mode == "time":
@@ -1581,6 +1587,39 @@ def export_srt(
     return "\n\n".join(blocks) + "\n"
 
 
+def _motion_segments(item: dict[str, Any]):
+    """Yield timed ASS positions, clipping segments to the cue's current in/out points."""
+    points = item.get("motion")
+    if not isinstance(points, list):
+        return
+    prev = None
+    for point in points:
+        if not isinstance(point, list) or len(point) != 3 or not all(
+            isinstance(v, (float, int)) and math.isfinite(v) for v in point
+        ):
+            continue
+        if prev is None:
+            prev = point
+            continue
+        t1, x1, y1 = prev
+        t2, x2, y2 = point
+        if t2 <= t1:
+            continue
+        prev = point
+        start = max(t1, item["start_ms"])
+        end = min(t2, item["end_ms"])
+        if start >= end:
+            continue
+
+        def position(ms):
+            mix = (ms - t1) / (t2 - t1)
+            x = max(0, min(1, x1 + mix * (x2 - x1)))
+            y = max(0, min(1, y1 + mix * (y2 - y1)))
+            return f"{round(x * 1920)},{round(y * 1080)}"
+
+        yield start, end, position(start), position(end)
+
+
 def export_ass(
     subtitles: list[dict[str, Any]],
     style: dict[str, Any],
@@ -1701,6 +1740,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         zh = esc_ass(item.get("zh") or "")
         en = esc_ass(item.get("en") or "")
         is_top_note = item.get("pos") == "top"
+
+        if item.get("motion"):
+            if zh and lang_mode != "en_only":
+                for t1, t2, p1, p2 in _motion_segments(item):
+                    start, end = format_ass_timestamp(t1), format_ass_timestamp(t2)
+                    if start == end:
+                        continue
+                    tag = f"\\pos({p1})" if p1 == p2 else f"\\move({p1},{p2})"
+                    events.append(f"Dialogue: 3,{start},{end},{zh_style_name},,0,0,0,,{{\\an2{tag}{blur_tag}}}{zh}")
+            continue
 
         start_str = format_ass_timestamp(item["start_ms"])
         end_str = format_ass_timestamp(item["end_ms"])
