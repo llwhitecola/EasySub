@@ -125,6 +125,10 @@ def load_settings() -> dict[str, Any]:
         "asr_api_key": "",
         "asr_api_model": "whisper-1",
         "trans_provider": "free",
+        "trans_preset": "us_drama",
+        "trans_agent_mode": True,
+        "trans_context": "",
+        "trans_custom_prompt": "",
         "trans_glossary": "",
         "llm_base": "https://api.deepseek.com/v1",
         "llm_key": "",
@@ -138,6 +142,20 @@ def load_settings() -> dict[str, Any]:
         except Exception:
             pass
     return defaults
+
+
+def _build_trans_cfg(settings: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": settings.get("trans_provider", "free"),
+        "preset": settings.get("trans_preset", "us_drama"),
+        "agent_mode": bool(settings.get("trans_agent_mode", True)),
+        "story_context": settings.get("trans_context", ""),
+        "custom_prompt": settings.get("trans_custom_prompt", ""),
+        "glossary": settings.get("trans_glossary", ""),
+        "llm_base": settings.get("llm_base", ""),
+        "llm_key": settings.get("llm_key", ""),
+        "llm_model": settings.get("llm_model", ""),
+    }
 
 
 def load_custom_presets() -> list[dict[str, Any]]:
@@ -390,19 +408,13 @@ class DesktopBridgeApi:
         semantically split the neighbor's long text into both rows and repair overlapping timestamps!
         Otherwise fall back to normal single-row AI translation.
         """
-        from core.media_ai import translate_subtitles, translate_texts_list
+        from core.media_ai import translate_single_cue_with_context, translate_texts_list
 
         if row_idx < 0 or row_idx >= len(subtitles):
             return {"ok": False, "error": "行号超出范围"}
 
         settings = load_settings()
-        trans_cfg = {
-            "provider": settings.get("trans_provider", "free"),
-            "glossary": settings.get("trans_glossary", ""),
-            "llm_base": settings.get("llm_base", ""),
-            "llm_key": settings.get("llm_key", ""),
-            "llm_model": settings.get("llm_model", ""),
-        }
+        trans_cfg = _build_trans_cfg(settings)
 
         nb, _ = _find_best_orphan_neighbor(subtitles, row_idx)
         if nb >= 0:
@@ -435,21 +447,17 @@ class DesktopBridgeApi:
         if not has_en and not has_zh:
             return {"ok": False, "error": "请先输入中文或英文任意一栏"}
         direction = "en_to_zh" if (has_en and not has_zh) else ("zh_to_en" if (has_zh and not has_en) else "en_to_zh")
-        src_txt = cue.get("en") if direction == "en_to_zh" else cue.get("zh")
         try:
-            res = translate_subtitles(
-                [{"id": 1, "start_ms": 0, "end_ms": 2000, "en": src_txt if direction == "en_to_zh" else "", "zh": src_txt if direction == "zh_to_en" else ""}],
-                direction=direction,
-                overwrite_existing=True,
-                config=trans_cfg,
+            out_txt = translate_single_cue_with_context(
+                subtitles, row_idx, direction=direction, config=trans_cfg
             )
-            out_txt = res[0]["zh"] if direction == "en_to_zh" else res[0]["en"]
             updated = [dict(x) for x in subtitles]
             if direction == "en_to_zh":
                 updated[row_idx]["zh"] = out_txt
             else:
                 updated[row_idx]["en"] = out_txt
-            return {"ok": True, "mode": "single_trans", "subtitles": updated, "message": "单句翻译补全完成！"}
+            engine_tag = "AI 翻译 Agent (结合上下文)" if trans_cfg["provider"] == "llm" and trans_cfg["llm_key"] else "神经网络翻译"
+            return {"ok": True, "mode": "single_trans", "subtitles": updated, "message": f"{engine_tag} 单句补全完成！"}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -476,13 +484,7 @@ class DesktopBridgeApi:
                 summary_parts: list[str] = []
 
                 settings = load_settings()
-                trans_cfg = {
-                    "provider": settings.get("trans_provider", "free"),
-                    "glossary": settings.get("trans_glossary", ""),
-                    "llm_base": settings.get("llm_base", ""),
-                    "llm_key": settings.get("llm_key", ""),
-                    "llm_model": settings.get("llm_model", ""),
-                }
+                trans_cfg = _build_trans_cfg(settings)
 
                 # 1. Clean SDH sound-effect tags first so '(grunts)' rows don't interfere with orphan pairing!
                 if options.get("clean_sdh", True):
@@ -566,7 +568,23 @@ class DesktopBridgeApi:
         return {"ok": True}
 
     def update_user_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
-        return save_settings(settings)
+        merged = save_settings(settings or {})
+        return {"ok": True, "settings": merged}
+
+    def test_llm_connection(self, settings: dict[str, Any]) -> dict[str, Any]:
+        from core.media_ai import test_llm_api_connection
+
+        merged = save_settings(settings or {})
+        return test_llm_api_connection(
+            api_base=merged.get("llm_base", ""),
+            api_key=merged.get("llm_key", ""),
+            model=merged.get("llm_model", ""),
+        )
+
+    def get_agent_preset_prompts(self) -> dict[str, Any]:
+        from core.media_ai import TRANSLATION_AGENT_PRESETS
+
+        return {"ok": True, "presets": TRANSLATION_AGENT_PRESETS}
 
     def get_task_status(self) -> dict[str, Any]:
         return STATE.get_task()
@@ -752,14 +770,15 @@ class DesktopBridgeApi:
           - 'asr_only': Extract speech from loaded video only
           - 'translate_only': Translate existing subtitles (en->zh or zh->en)
         """
+        # Always persist user settings FIRST so API Keys/Agent prompts are never lost even if video isn't loaded!
+        settings = save_settings(options.get("settings") or {})
+
         if STATE.get_task()["running"]:
             return {"ok": False, "error": "已有 AI 任务正在运行中，请稍候…"}
 
         if workflow_type in ("asr_and_translate", "asr_only"):
             if not STATE.video_path or not STATE.video_path.exists():
-                return {"ok": False, "error": "请先导入一个音视频文件，再启动 AI 语音听写！"}
-
-        settings = save_settings(options.get("settings") or {})
+                return {"ok": False, "error": "配置已自动保存！如需语音听写请先打开一个音视频文件，或切换上方为「仅把现有单语翻译成双语」。"}
 
         def worker() -> None:
             try:
@@ -786,13 +805,7 @@ class DesktopBridgeApi:
                 if workflow_type in ("asr_and_translate", "translate_only"):
                     direction = options.get("direction", "en_to_zh")
                     overwrite = bool(options.get("overwrite", False))
-                    trans_cfg = {
-                        "provider": settings.get("trans_provider", "free"),
-                        "glossary": settings.get("trans_glossary", ""),
-                        "llm_base": settings.get("llm_base", ""),
-                        "llm_key": settings.get("llm_key", ""),
-                        "llm_model": settings.get("llm_model", ""),
-                    }
+                    trans_cfg = _build_trans_cfg(settings)
                     subs = translate_subtitles(
                         subs,
                         direction=direction,
@@ -834,13 +847,7 @@ class DesktopBridgeApi:
                 dummy,
                 direction=direction,
                 overwrite_existing=True,
-                config={
-                    "provider": settings.get("trans_provider", "free"),
-                    "glossary": settings.get("trans_glossary", ""),
-                    "llm_base": settings.get("llm_base", ""),
-                    "llm_key": settings.get("llm_key", ""),
-                    "llm_model": settings.get("llm_model", ""),
-                },
+                config=_build_trans_cfg(settings),
             )
             target_field = "zh" if direction == "en_to_zh" else "en"
             return {"ok": True, "translated": res[0].get(target_field, "")}

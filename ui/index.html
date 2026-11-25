@@ -17,7 +17,7 @@
       <div class="brand-meta">
         <div class="brand-title">
           傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.5</span>
+          <span class="badge-pro">Studio v1.6</span>
         </div>
         <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
           <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
@@ -565,7 +565,7 @@
 
         <div class="ai-config-section" id="secTransConfig">
           <div class="sec-heading-row">
-            <div class="sec-heading">🌐 双语翻译设置</div>
+            <div class="sec-heading">🌐 双语翻译与 AI 精翻 Agent 设置</div>
             <label class="switch-label">
               <input type="checkbox" class="ui-switch" id="aiTransOverwrite" />
               <span>覆盖已有译文（默认仅补全空行）</span>
@@ -581,27 +581,74 @@
             <label>翻译引擎
               <select id="aiTransProvider" class="input-sm">
                 <option value="free" selected>⚡ 免配置极速神经网络翻译 (开箱即用)</option>
-                <option value="llm">🧠 AI 大模型结合上下文精翻 (DeepSeek/OpenAI)</option>
+                <option value="llm">🧠 AI 影视精翻 Agent (DeepSeek / OpenAI / 千问)</option>
               </select>
             </label>
           </div>
 
-          <div class="form-grid-3 hidden" id="wrapLlmApi">
-            <label>大模型 API Base URL
-              <input type="text" id="aiLlmBase" class="input-sm" placeholder="https://api.deepseek.com/v1" />
-            </label>
-            <label>大模型 API Key
-              <input type="password" id="aiLlmKey" class="input-sm" placeholder="sk-..." />
-            </label>
-            <label>模型名称 (Model)
-              <input type="text" id="aiLlmModel" class="input-sm" placeholder="deepseek-chat / gpt-4o-mini" />
+          <div class="llm-quick-bar">
+            <span class="llm-quick-lbl">🚀 一键配置大模型：</span>
+            <button type="button" class="prov-chip" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>
+            <button type="button" class="prov-chip" data-base="https://api.siliconflow.cn/v1" data-model="deepseek-ai/DeepSeek-V3">硅基流动</button>
+            <button type="button" class="prov-chip" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">通义千问</button>
+            <button type="button" class="prov-chip" data-base="https://api.openai.com/v1" data-model="gpt-4o-mini">OpenAI</button>
+            <button type="button" class="prov-chip" data-base="https://api.moonshot.cn/v1" data-model="moonshot-v1-8k">Kimi</button>
+            <button type="button" class="prov-chip" data-base="http://127.0.0.1:11434/v1" data-model="qwen2.5:14b">本地 Ollama</button>
+            <button type="button" class="btn btn-step btn-xs-test" id="btnTestLlmApi" title="立即保存并测试当前 API Key 与模型是否连通">🔌 测试连接</button>
+          </div>
+
+          <div class="llm-agent-box hidden" id="wrapLlmApi">
+
+            <div class="form-grid-3">
+              <label>大模型 API Base URL
+                <input type="text" id="aiLlmBase" class="input-sm" placeholder="https://api.deepseek.com/v1" />
+              </label>
+              <label>大模型 API Key
+                <div class="key-inp-wrap">
+                  <input type="password" id="aiLlmKey" class="input-sm" placeholder="sk-... (输入后自动本机保存)" />
+                  <button type="button" class="key-eye-btn" id="btnToggleKeyVis" title="显示 / 隐藏 API Key">👁</button>
+                </div>
+              </label>
+              <label>模型名称 (Model)
+                <input type="text" id="aiLlmModel" class="input-sm" placeholder="deepseek-chat / deepseek-reasoner" />
+              </label>
+            </div>
+
+            <div class="form-grid-2">
+              <label>
+                <div class="ms-head">
+                  <span>🎭 翻译 Agent 专家人设 (内置领域精调 Prompt)</span>
+                  <a href="#" id="btnTogglePromptEdit" class="link-mini">查看/微调提示词</a>
+                </div>
+                <select id="aiTransPreset" class="input-sm">
+                  <option value="us_drama" selected>🎬 美剧 / 好莱坞大片精翻 Agent (默认推荐)</option>
+                  <option value="scifi_epic">🌌 科幻 / 奇幻史诗考据 Agent (沙丘 / 权游 / 星战)</option>
+                  <option value="doc_tech">🎓 纪录片 / TED 科普学术 Agent (BBC / 科技 / 访谈)</option>
+                  <option value="sitcom_humor">😂 情景喜剧 / 综艺脱口秀 Agent (老友记 / 喜剧)</option>
+                  <option value="anime_game">⚔️ 动漫 / 剧情向游戏热血 Agent</option>
+                  <option value="custom">✍️ 自定义专属翻译 Agent 提示词</option>
+                </select>
+              </label>
+              <label class="check-bottom switch-label" title="开启后 Agent 会先通读全片自动提取统一人物译名，再结合上下各 4 句滑动窗口与每句时长精准翻译">
+                <input type="checkbox" class="ui-switch" id="aiTransAgentMode" checked />
+                <span>启用三阶段 Agent（全片术语自学习 + 上下文滑动精翻）</span>
+              </label>
+            </div>
+
+            <label class="hidden" id="wrapCustomPrompt" style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:#b0bfd4;">
+              <span>📝 Agent 系统提示词（选择上方预设可作为底稿补充要求，或选“自定义”完全接管）</span>
+              <textarea id="aiTransCustomPrompt" rows="3" class="textarea-compact" placeholder="可输入补充翻译规范，例如：保持冷峻克制的硬汉台词风格、遇到军事呼号保留简写…"></textarea>
             </label>
           </div>
 
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#94a3b8;">
-            <span>📖 专有名词 / 人名固定译法表（选填，用逗号分隔，免配置极速翻译与大模型精翻均自动锁定统一译名）</span>
-            <input type="text" id="aiGlossary" class="input-sm" placeholder="例如：Will=威尔, Sylvia=西尔维娅, San Diego=圣迭戈" />
-          </label>
+          <div class="form-grid-2">
+            <label>🎞️ 影片背景 / 剧情简注（选填，让 AI 翻译更精准）
+              <input type="text" id="aiTransContext" class="input-sm" placeholder="例如：电影《沙丘2》，保罗与弗雷曼人对抗哈克南家族" />
+            </label>
+            <label>📖 专有名词 / 人名固定译法表（选填，逗号分隔）
+              <input type="text" id="aiGlossary" class="input-sm" placeholder="例如：Spice=香料, Paul=保罗, Harkonnen=哈克南" />
+            </label>
+          </div>
         </div>
 
         <div class="ai-progress-box hidden" id="aiProgressBox">
@@ -613,7 +660,9 @@
       </div>
 
       <div class="modal-footer">
+        <span id="lblAiSaveStatus" class="ai-save-hint">💡 填写的 Key 与人设会自动持久保存，也可用于行内单句翻译与智能精修</span>
         <button class="btn btn-ghost" data-close="modalAi">关闭</button>
+        <button class="btn btn-step" id="btnSaveAiSettings" title="仅保存当前 API Key、Agent 人设与术语配置，暂不执行批量生成">💾 保存配置</button>
         <button class="btn btn-ai btn-lg" id="btnStartAiRun">✨ 立即开始 AI 生成</button>
       </div>
     </div>

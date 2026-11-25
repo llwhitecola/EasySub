@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
@@ -509,6 +510,416 @@ def _restore_glossary_placeholders(
     return restored
 
 
+TRANSLATION_AGENT_PRESETS: dict[str, dict[str, str]] = {
+    "us_drama": {
+        "name": "🎬 美剧 / 好莱坞大片精翻 Agent (默认推荐)",
+        "prompt": (
+            "你是一位拥有十年经验的顶级影视双语字幕组译制总监（人人/衣柜字幕组标准）。\n"
+            "【译制准则】\n"
+            "1. 口语化与去翻译腔：对白必须符合人物身份、情绪与说话口吻，干脆利落，严禁生硬欧化长句或逐词死译。\n"
+            "2. 语境指代精准还原：必须结合前后文（prev_context / next_context）判断人称代词（区分 you=你/你们/您，it/they 具体指代）及英语省略句的隐含宾语。\n"
+            "3. 跨行断句顺畅衔接：当一句完整英文被拆成上下两行字幕时，两行译文单独可读、连读更要自然顺畅，绝不生硬倒装。\n"
+            "4. 语速与阅读舒适度：参考每行时长（dur），短促呼喊（<1.2s）译文务必精炼有力（2~6字）；单行中文尽量控制在 22 字以内，句内停顿优先用单个空格代替逗号，句末不加句号。"
+        ),
+    },
+    "scifi_epic": {
+        "name": "🌌 科幻 / 奇幻史诗考据 Agent (沙丘 / 权游 / 星战)",
+        "prompt": (
+            "你是一位专精科幻与奇幻史诗巨制（如《沙丘》《权力的游戏》《指环王》）的考据派影视译者。\n"
+            "【译制准则】\n"
+            "1. 世界观与术语庄重统一：对家族、爵位、头衔、星球、教派、预言与专有设定词保持高度统一，切忌将专有设定词误作日常词汇直译。\n"
+            "2. 阶层语感区分：皇室贵族、宗教圣母与史诗独白用词凝练典雅、富有宿命张力；战场军事通讯与战术口令短促铿锵（如“各单位注意”“自由开火”）。\n"
+            "3. 紧密衔接前后对白语境，中文句内停顿优先使用空格，句末不加句号。"
+        ),
+    },
+    "doc_tech": {
+        "name": "🎓 纪录片 / TED 科普学术 Agent (BBC / 科技 / 访谈)",
+        "prompt": (
+            "你是一位资深自然历史纪录片（BBC/国家地理）与前沿科技访谈译者。\n"
+            "【译制准则】\n"
+            "1. 科学严谨与信达雅：专业学科术语、技术名词与数据逻辑必须精准无误，必要时保留规范英文缩写。\n"
+            "2. 旁白叙述语调沉稳克制、凝练优美，长定语从句按中文叙事习惯拆解重排，逻辑因果清晰易懂。"
+        ),
+    },
+    "sitcom_humor": {
+        "name": "😂 情景喜剧 / 综艺脱口秀 Agent (老友记 / 生活大爆炸)",
+        "prompt": (
+            "你是一位专精英语情景喜剧、脱口秀与真人秀的本地化字幕译者。\n"
+            "【译制准则】\n"
+            "1. 包袱与情绪优先：敏锐捕捉美式反讽、自嘲、双关、俚语与吐槽节奏，用鲜活接地气的现代自然中文还原笑点。\n"
+            "2. 台词灵动轻快、贴近真实日常聊天，适度意译但绝不生造违和烂梗。"
+        ),
+    },
+    "anime_game": {
+        "name": "⚔️ 动漫 / 剧情向游戏热血 Agent",
+        "prompt": (
+            "你是一位资深动画剧集与 3A 剧情游戏本地化译者。\n"
+            "【译制准则】\n"
+            "1. 鲜明展现角色性格反差、口癖与情绪爆发力；技能、阵营与招式名称兼具美感与气势。\n"
+            "2. 战斗与快节奏过场台词短促有张力，绝不拖泥带水。"
+        ),
+    },
+    "custom": {
+        "name": "✍️ 自定义专属翻译 Agent 提示词",
+        "prompt": (
+            "你是一位资深影视双语字幕翻译专家。请结合完整上下文语境，将台词翻译得自然、准确、精炼，贴合人物口吻，句末不加句号。"
+        ),
+    },
+}
+
+
+def _strip_reasoning_and_parse_json(raw_content: str) -> dict[str, Any]:
+    """
+    Robustly parse JSON object from any OpenAI-compatible or reasoning LLM response
+    (strips DeepSeek-R1 <think>...</think> blocks, markdown code fences, and trailing prose).
+    """
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", raw_content or "", flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        obj = json.loads(cleaned)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # Fallback: locate outermost {...} object
+    first_brace = cleaned.find("{")
+    last_brace = cleaned.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        snippet = cleaned[first_brace : last_brace + 1]
+        obj = json.loads(snippet)
+        if isinstance(obj, dict):
+            return obj
+    raise ValueError(f"大模型返回内容未能解析为有效 JSON：{cleaned[:160]}")
+
+
+_DOMESTIC_DIRECT_DOMAINS = (
+    "deepseek.com",
+    "siliconflow.cn",
+    "aliyuncs.com",
+    "moonshot.cn",
+    "volces.com",
+    "bigmodel.cn",
+    "baidubce.com",
+    "minimaxi.com",
+)
+
+
+def _prefer_direct_no_proxy(api_base: str) -> bool:
+    b = (api_base or "").lower()
+    if "127.0.0.1" in b or "localhost" in b:
+        return True
+    return any(dom in b for dom in _DOMESTIC_DIRECT_DOMAINS)
+
+
+def _post_chat_completion(
+    client: httpx.Client | None,
+    api_base: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float = 0.25,
+    json_mode: bool = True,
+    max_tokens: int | None = None,
+    timeout: float = 90.0,
+) -> str:
+    url = f"{api_base.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    is_reasoner = "reasoner" in model.lower() or "r1" in model.lower()
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+    if not is_reasoner:
+        payload["temperature"] = temperature
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if json_mode and not is_reasoner:
+        payload["response_format"] = {"type": "json_object"}
+
+    def _send_with(c: httpx.Client) -> str:
+        req_payload = dict(payload)
+        resp = c.post(url, headers=headers, json=req_payload)
+        if resp.status_code == 400 and "response_format" in req_payload:
+            req_payload.pop("response_format", None)
+            resp = c.post(url, headers=headers, json=req_payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return (data["choices"][0]["message"].get("content") or "").strip()
+
+    is_local = "127.0.0.1" in api_base or "localhost" in api_base
+    if is_local:
+        with httpx.Client(timeout=timeout, trust_env=False) as local_c:
+            return _send_with(local_c)
+
+    primary_trust = not _prefer_direct_no_proxy(api_base)
+    try:
+        with httpx.Client(timeout=timeout, trust_env=primary_trust) as c1:
+            return _send_with(c1)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ProxyError):
+        # Automatic proxy/direct fallback if system proxy is stale or required!
+        with httpx.Client(timeout=timeout, trust_env=not primary_trust) as c2:
+            return _send_with(c2)
+
+
+def test_llm_api_connection(api_base: str, api_key: str, model: str) -> dict[str, Any]:
+    """Verify LLM endpoint, API key, and model availability with latency measurement."""
+    base = (api_base or "").strip().rstrip("/")
+    key = (api_key or "").strip()
+    mdl = (model or "").strip()
+    if not base:
+        return {"ok": False, "error": "请先填写 API Base URL（例如 https://api.deepseek.com/v1）"}
+    if not key and "127.0.0.1" not in base and "localhost" not in base:
+        return {"ok": False, "error": "请先填写大模型 API Key"}
+    if not mdl:
+        return {"ok": False, "error": "请先填写模型名称（例如 deepseek-chat）"}
+
+    t0 = time.perf_counter()
+    try:
+        reply = _post_chat_completion(
+            None,
+            api_base=base,
+            api_key=key or "ollama",
+            model=mdl,
+            messages=[{"role": "user", "content": "请仅回复 OK 两个字母。"}],
+            temperature=0.1,
+            json_mode=False,
+            max_tokens=32,
+            timeout=22.0,
+        )
+        ms = int(round((time.perf_counter() - t0) * 1000))
+        clean_reply = re.sub(r"<think>[\s\S]*?</think>", "", reply).strip()[:40]
+        return {
+            "ok": True,
+            "latency_ms": ms,
+            "model": mdl,
+            "reply": clean_reply or "OK",
+        }
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        detail = exc.response.text[:160]
+        if code == 401:
+            return {"ok": False, "error": "API Key 验证失败 (HTTP 401)：请检查 Key 是否正确或已过期"}
+        if code == 402:
+            return {"ok": False, "error": "API 账户余额不足 (HTTP 402)：请检查对应平台额度"}
+        if code == 404:
+            return {"ok": False, "error": f"接口地址或模型名称不存在 (HTTP 404)：请确认 Base URL 末尾含 /v1 且模型名 {mdl} 正确"}
+        return {"ok": False, "error": f"API 请求返回错误 (HTTP {code})：{detail}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"无法连接到 API 服务器：{exc}"}
+
+
+def _resolve_agent_persona_prompt(cfg: dict[str, Any]) -> str:
+    preset_id = str(cfg.get("preset") or "us_drama")
+    custom_prompt = str(cfg.get("custom_prompt") or "").strip()
+    if preset_id == "custom" and custom_prompt:
+        return custom_prompt
+    base_prompt = TRANSLATION_AGENT_PRESETS.get(preset_id, TRANSLATION_AGENT_PRESETS["us_drama"])["prompt"]
+    if custom_prompt and preset_id != "custom":
+        return f"{base_prompt}\n【用户补充要求】\n{custom_prompt}"
+    return base_prompt
+
+
+def _mine_existing_bilingual_anchors(subtitles: list[dict[str, Any]], max_anchors: int = 16) -> list[str]:
+    """
+    Extract reference bilingual lines containing proper nouns from already-translated rows
+    in the current subtitle table so the Agent automatically learns existing character/place names!
+    """
+    prop_re = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*\b")
+    skip_common = {
+        "The", "This", "That", "What", "When", "Where", "Why", "How", "Who",
+        "You", "They", "There", "Here", "Yes", "Not", "But", "And", "For",
+        "Stay", "Come", "Don", "Are", "His", "Her", "Our", "All", "Now",
+    }
+    seen_terms: set[str] = set()
+    anchors: list[str] = []
+    for row in subtitles:
+        zh = (row.get("zh") or "").strip()
+        en = (row.get("en") or "").strip()
+        if not zh or not en or len(en) > 95 or len(zh) > 45:
+            continue
+        found = [m for m in prop_re.findall(en) if m not in skip_common]
+        new_terms = [t for t in found if t.lower() not in seen_terms]
+        if new_terms:
+            for t in new_terms:
+                seen_terms.add(t.lower())
+            anchors.append(f"{en} ➔ {zh}")
+            if len(anchors) >= max_anchors:
+                break
+    return anchors
+
+
+def _agent_stage1_discover_brief(
+    client: httpx.Client,
+    subtitles: list[dict[str, Any]],
+    indices_to_translate: list[int],
+    to_lang: str,
+    api_base: str,
+    api_key: str,
+    model: str,
+    story_context: str,
+    existing_anchors: list[str],
+    user_glossary: list[tuple[str, str]],
+) -> tuple[str, list[tuple[str, str]]]:
+    """
+    Stage 1 of SubTranslationAgent:
+    Pre-scan sampled lines across the movie + existing bilingual anchors to build a unified
+    Synopsis Brief & Auto-Discovered Proper-Noun Glossary before batch translation starts!
+    """
+    total_t = len(indices_to_translate)
+    if total_t < 8:
+        return "", user_glossary
+
+    # Sample up to 26 lines evenly across the untranslated script
+    step = max(1, total_t // 26)
+    sampled_indices = indices_to_translate[::step][:26]
+    src_field = "en" if to_lang == "zh" else "zh"
+    sampled_lines = [
+        (subtitles[i].get(src_field) or "").strip()
+        for i in sampled_indices
+        if (subtitles[i].get(src_field) or "").strip()
+    ]
+
+    anchor_block = (
+        "\n【本片已有人工双语对白参考（必须沿用其中译名！）】\n" + "\n".join(existing_anchors[:14])
+        if existing_anchors
+        else ""
+    )
+    user_ctx_block = f"\n【用户提供的影片背景】{story_context}" if story_context else ""
+    target_lang_name = "简体中文" if to_lang == "zh" else "English"
+
+    sys_msg = (
+        "你是影视字幕译前审片与术语建档 Agent。请快速通读以下剧本抽样台词，输出紧凑 JSON 对象：\n"
+        "{\n"
+        '  "brief": "一句话概括影片题材、人物关系与对话基调（50字内）",\n'
+        f'  "glossary": {{"原文专有名词或人名": "{target_lang_name}统一标准译名"}}\n'
+        "}\n"
+        "注意：glossary 仅收录高把握的人名、地名、家族、组织或核心设定词（最多 15 项）；若已有参考译名必须严格一致！"
+    )
+    user_msg = f"【抽样台词】\n" + "\n".join(sampled_lines) + anchor_block + user_ctx_block
+
+    try:
+        raw = _post_chat_completion(
+            client,
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            messages=[
+                {"role": "system", "content": sys_msg},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.2,
+            json_mode=True,
+        )
+        parsed = _strip_reasoning_and_parse_json(raw)
+        brief = str(parsed.get("brief") or "").strip()
+        auto_gloss_raw = parsed.get("glossary") or {}
+        merged_map: dict[str, tuple[str, str]] = {}
+        if isinstance(auto_gloss_raw, dict):
+            for k, v in auto_gloss_raw.items():
+                ks, vs = str(k).strip(), str(v).strip()
+                if ks and vs and ks.lower() != vs.lower():
+                    merged_map[ks.lower()] = (ks, vs)
+        # User's explicit glossary ALWAYS overrides auto-discovered terms!
+        for uk, uv in user_glossary:
+            merged_map[uk.lower()] = (uk, uv)
+        merged_list = sorted(merged_map.values(), key=lambda x: len(x[0]), reverse=True)
+        return brief, merged_list
+    except Exception:
+        return "", user_glossary
+
+
+def _polish_subtitle_output_line(text: str, to_lang: str, preset_id: str) -> str:
+    t = (text or "").strip()
+    # Strip any echoed duration tag like '[1.5s] '
+    t = re.sub(r"^\[\d+(?:\.\d+)?s\]\s*", "", t).strip()
+    if to_lang == "zh":
+        t = re.sub(r"[。\.]+([\"”』」]?)$", r"\1", t)
+        if preset_id in ("us_drama", "scifi_epic"):
+            t = t.replace("？", "?").replace("！", "!")
+            t = re.sub(r"[，、；]+([\"”』」]?)$", r"\1", t)
+            t = re.sub(r"[，、]", " ", t)
+            t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def translate_single_cue_with_context(
+    subtitles: list[dict[str, Any]],
+    row_idx: int,
+    direction: str = "en_to_zh",
+    config: dict[str, Any] | None = None,
+) -> str:
+    """
+    Context-aware single-row translation with ±3 surrounding bilingual rows!
+    Uses LLM Agent when configured, otherwise falls back to glossary-locked neural translation.
+    """
+    cfg = config or {}
+    src_field = "en" if direction == "en_to_zh" else "zh"
+    to_lang = "zh" if direction == "en_to_zh" else "en"
+    target_row = subtitles[row_idx]
+    src_txt = (target_row.get(src_field) or "").strip()
+    if not src_txt:
+        return ""
+
+    provider = cfg.get("provider", "free")
+    llm_key = (cfg.get("llm_key") or "").strip()
+    llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
+    llm_model = (cfg.get("llm_model") or "deepseek-chat").strip()
+    preset_id = str(cfg.get("preset") or "us_drama")
+
+    if provider == "llm" and (llm_key or "127.0.0.1" in llm_base or "localhost" in llm_base):
+        persona = _resolve_agent_persona_prompt(cfg)
+        glossary_pairs = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+        story_ctx = str(cfg.get("story_context") or "").strip()
+
+        neighbors: list[str] = []
+        for k in range(max(0, row_idx - 3), min(len(subtitles), row_idx + 4)):
+            if k == row_idx:
+                neighbors.append(f">>> [目标句 #{k+1}] 原文: {src_txt}")
+            else:
+                r = subtitles[k]
+                neighbors.append(
+                    f"[上下文 #{k+1}] EN: {(r.get('en') or '').strip()} | ZH: {(r.get('zh') or '').strip()}"
+                )
+
+        gloss_str = (
+            "\n【锁定译名表】" + "；".join(f"{s} -> {d}" for s, d in glossary_pairs)
+            if glossary_pairs
+            else ""
+        )
+        ctx_str = f"\n【影片背景】{story_ctx}" if story_ctx else ""
+        target_desc = "地道精炼的简体中文字幕" if to_lang == "zh" else "natural concise English subtitle"
+        sys_msg = (
+            f"{persona}{ctx_str}{gloss_str}\n"
+            f"请结合上下相邻台词的语境与已有译名，仅将标记为 >>> [目标句] 的原文翻译为{target_desc}。\n"
+            '严格只输出 JSON：{"translation": "译文内容"}'
+        )
+        with httpx.Client(timeout=45.0) as client:
+            raw = _post_chat_completion(
+                client,
+                api_base=llm_base,
+                api_key=llm_key or "ollama",
+                model=llm_model,
+                messages=[
+                    {"role": "system", "content": sys_msg},
+                    {"role": "user", "content": "\n".join(neighbors)},
+                ],
+                temperature=0.25,
+                json_mode=True,
+            )
+            parsed = _strip_reasoning_and_parse_json(raw)
+            out = str(parsed.get("translation") or "").strip()
+            if out:
+                return _polish_subtitle_output_line(out, to_lang, preset_id)
+
+    res_list = translate_texts_list([src_txt], direction=direction, config=cfg)
+    return _polish_subtitle_output_line(res_list[0] if res_list else "", to_lang, preset_id)
+
+
 def _translate_batch_llm(
     texts: list[str],
     to_lang: str,
@@ -517,59 +928,51 @@ def _translate_batch_llm(
     model: str,
     glossary_pairs: list[tuple[str, str]] | None = None,
     progress: ProgressCallback | None = None,
+    persona_prompt: str = "",
+    story_context: str = "",
+    preset_id: str = "us_drama",
 ) -> list[str]:
-    """
-    Context-aware cinema subtitle translation via any OpenAI-compatible Chat Completions API
-    (DeepSeek, OpenAI, SiliconFlow, Qwen, Moonshot, Ollama, etc.).
-    """
+    """Standalone list translator via LLM (used for helper phrase/split tasks)."""
     target_desc = "地道、自然、简练的简体中文影视字幕" if to_lang == "zh" else "natural, concise English movie subtitles"
-    url = f"{api_base.rstrip('/')}/chat/completions"
     results: list[str] = [""] * len(texts)
-    chunk_size = 25
+    chunk_size = 20
+    persona = persona_prompt or TRANSLATION_AGENT_PRESETS["us_drama"]["prompt"]
 
     glossary_note = ""
     if glossary_pairs:
         formatted_terms = "；".join(f"{s} -> {d}" for s, d in glossary_pairs)
-        glossary_note = f"\n3. 专有名词与人名固定译法表（遇到时必须严格采用）：{formatted_terms}。"
+        glossary_note = f"\n【专有名词固定译法表（必须严格采用）】：{formatted_terms}。"
+    ctx_note = f"\n【影片背景简注】：{story_context}" if story_context else ""
 
     with httpx.Client(timeout=90.0) as client:
         for start in range(0, len(texts), chunk_size):
             chunk = texts[start : start + chunk_size]
             numbered_input = {str(idx): line for idx, line in enumerate(chunk)}
             sys_prompt = (
-                f"你是一位资深影视双语字幕翻译专家。请将用户提供的 JSON 字典中的每句台词结合前后语境翻译为{target_desc}。\n"
-                "严格要求：\n"
-                "1. 必须仅输出合法的 JSON 对象，键名与输入完全一致（如 \"0\", \"1\"...），值为翻译后的单行字符串。\n"
-                f"2. 不要合并或遗漏任何一行，字幕末尾不要加句号，保持口语自然流畅。{glossary_note}"
+                f"{persona}{ctx_note}{glossary_note}\n"
+                f"请将用户提供的 JSON 字典中的每句台词结合前后语境翻译为{target_desc}。\n"
+                '严格要求：必须仅输出合法的 JSON 对象，键名与输入完全一致（"0", "1"...），值为单行译文字符串，不合并、不遗漏任何一行。'
             )
-            resp = client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "temperature": 0.3,
-                    "messages": [
-                        {"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": json.dumps(numbered_input, ensure_ascii=False)},
-                    ],
-                },
+            raw = _post_chat_completion(
+                client,
+                api_base=api_base,
+                api_key=api_key or "ollama",
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": json.dumps(numbered_input, ensure_ascii=False)},
+                ],
+                temperature=0.25,
+                json_mode=True,
             )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
-            # Strip markdown code fences if present
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```$", "", content)
-            parsed = json.loads(content)
+            parsed = _strip_reasoning_and_parse_json(raw)
             for offset in range(len(chunk)):
-                val = parsed.get(str(offset), "")
-                results[start + offset] = str(val).strip()
+                val = str(parsed.get(str(offset), "")).strip()
+                results[start + offset] = _polish_subtitle_output_line(val, to_lang, preset_id)
 
             if progress:
                 pct = min(98, 20 + int(((start + len(chunk)) / max(1, len(texts))) * 78))
-                progress(f"大模型精翻进度：{min(len(texts), start + len(chunk))} / {len(texts)} 句…", pct)
+                progress(f"AI 翻译 Agent 精翻进度：{min(len(texts), start + len(chunk))} / {len(texts)} 句…", pct)
 
     return results
 
@@ -586,20 +989,24 @@ def translate_texts_list(
     provider = cfg.get("provider", "free")
     to_lang = "zh" if direction == "en_to_zh" else "en"
     glossary_pairs = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+    preset_id = str(cfg.get("preset") or "us_drama")
 
     if provider == "llm":
         llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
         llm_key = (cfg.get("llm_key") or "").strip()
         llm_model = (cfg.get("llm_model") or "deepseek-chat").strip()
-        if llm_key:
+        if llm_key or "127.0.0.1" in llm_base or "localhost" in llm_base:
             return _translate_batch_llm(
                 source_texts,
                 to_lang,
                 llm_base,
-                llm_key,
+                llm_key or "ollama",
                 llm_model,
                 glossary_pairs=glossary_pairs,
                 progress=progress,
+                persona_prompt=_resolve_agent_persona_prompt(cfg),
+                story_context=str(cfg.get("story_context") or "").strip(),
+                preset_id=preset_id,
             )
 
     prepared_texts = _apply_glossary_placeholders(source_texts, glossary_pairs)
@@ -630,13 +1037,17 @@ def translate_subtitles(
 ) -> list[dict[str, Any]]:
     """
     Translate missing (or all) bilingual fields across subtitles.
-    direction: 'en_to_zh' | 'zh_to_en'
+    When provider == 'llm', runs the 3-Stage SubTranslationAgent:
+      Stage 1 -> Film Synopsis & Existing Bilingual Proper-Noun Auto-Discovery
+      Stage 2 -> Sliding-Window (prev 4 + target 18 w/ duration + next 3 lookahead) Context Translation
+      Stage 3 -> Missing-Line Self-Check Retry & Cinema Typography Polish
     """
     cfg = config or {}
     provider = cfg.get("provider", "free")
     src_field = "en" if direction == "en_to_zh" else "zh"
     dst_field = "zh" if direction == "en_to_zh" else "en"
     to_lang = "zh" if direction == "en_to_zh" else "en"
+    preset_id = str(cfg.get("preset") or "us_drama")
 
     updated = [dict(item) for item in subtitles]
     indices_to_translate: list[int] = []
@@ -657,21 +1068,159 @@ def translate_subtitles(
     if not source_texts:
         return updated
 
+    if provider == "llm":
+        llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
+        llm_key = (cfg.get("llm_key") or "").strip()
+        llm_model = (cfg.get("llm_model") or "deepseek-chat").strip()
+        if not llm_key and "127.0.0.1" not in llm_base and "localhost" not in llm_base:
+            raise ValueError("使用 AI 大模型精翻时，请先填写 API Key（或切换为“免配置极速翻译”）。")
+
+        persona_prompt = _resolve_agent_persona_prompt(cfg)
+        story_context = str(cfg.get("story_context") or "").strip()
+        agent_mode = bool(cfg.get("agent_mode", True))
+        user_glossary = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+        existing_anchors = _mine_existing_bilingual_anchors(updated, max_anchors=16)
+
+        with httpx.Client(timeout=100.0) as client:
+            discovered_brief = ""
+            active_glossary = user_glossary
+            if agent_mode and len(indices_to_translate) >= 8:
+                if progress:
+                    progress("🧠 Agent 阶段 1/3：正在通读全片抽样语境并建立专有名词译名档案…", 14)
+                discovered_brief, active_glossary = _agent_stage1_discover_brief(
+                    client,
+                    subtitles=updated,
+                    indices_to_translate=indices_to_translate,
+                    to_lang=to_lang,
+                    api_base=llm_base,
+                    api_key=llm_key or "ollama",
+                    model=llm_model,
+                    story_context=story_context,
+                    existing_anchors=existing_anchors,
+                    user_glossary=user_glossary,
+                )
+
+            brief_section = ""
+            if story_context or discovered_brief:
+                combined_brief = "；".join(filter(None, [story_context, discovered_brief]))
+                brief_section = f"\n【全片剧情与基调记忆】：{combined_brief}"
+            gloss_section = ""
+            if active_glossary:
+                gloss_section = "\n【全片锁定译名表（必须严格统一）】：\n" + "；".join(
+                    f"{s} = {d}" for s, d in active_glossary[:35]
+                )
+            anchor_section = ""
+            if existing_anchors:
+                anchor_section = "\n【本片既有双语参考句】：" + " | ".join(existing_anchors[:6])
+
+            target_desc = "简体中文影视字幕" if to_lang == "zh" else "English movie subtitles"
+            sys_prompt = (
+                f"{persona_prompt}{brief_section}{gloss_section}{anchor_section}\n\n"
+                "【输出格式铁律】\n"
+                f"用户将提供一段包含 prev_context（前文参考）、target_lines（待译台词，含时长 dur）与 next_context（后文预读）的剧本片段。\n"
+                f"请仅针对 target_lines 中的每一项结合前后语境译为{target_desc}，并严格只输出 JSON 对象：\n"
+                '{"0": "第0项译文", "1": "第1项译文", ...}\n'
+                "绝不要输出 prev_context 或 next_context，绝不要合并或漏掉任何键名，译文中不要包含 [1.5s] 时长标签！"
+            )
+
+            batch_size = 18
+            missed_positions: list[int] = []
+
+            for b_start in range(0, len(indices_to_translate), batch_size):
+                batch_indices = indices_to_translate[b_start : b_start + batch_size]
+                first_row_i = batch_indices[0]
+                last_row_i = batch_indices[-1]
+
+                # Sliding window: up to 4 preceding rows (with fresh translations!) + up to 3 lookahead rows
+                prev_ctx = []
+                for pi in range(max(0, first_row_i - 4), first_row_i):
+                    pr = updated[pi]
+                    p_en = (pr.get("en") or "").strip()
+                    p_zh = (pr.get("zh") or "").strip()
+                    if p_en or p_zh:
+                        prev_ctx.append(f"#{pi+1} EN: {p_en} | ZH: {p_zh}")
+
+                next_ctx = []
+                for ni in range(last_row_i + 1, min(len(updated), last_row_i + 4)):
+                    nr = updated[ni]
+                    n_src = (nr.get(src_field) or "").strip()
+                    if n_src:
+                        next_ctx.append(f"#{ni+1}: {n_src}")
+
+                target_payload: dict[str, str] = {}
+                for offset, r_idx in enumerate(batch_indices):
+                    row = updated[r_idx]
+                    dur_s = max(0.3, (int(row.get("end_ms", 2000)) - int(row.get("start_ms", 0))) / 1000.0)
+                    target_payload[str(offset)] = f"[{dur_s:.1f}s] {(row.get(src_field) or '').strip()}"
+
+                user_payload = {
+                    "prev_context_readonly": prev_ctx,
+                    "target_lines": target_payload,
+                    "next_context_readonly": next_ctx,
+                }
+
+                if progress:
+                    pct = min(94, 22 + int(((b_start + len(batch_indices)) / max(1, len(indices_to_translate))) * 70))
+                    progress(
+                        f"🧠 Agent 阶段 2/3：上下文滑动精翻 {min(len(indices_to_translate), b_start + len(batch_indices))} / {len(indices_to_translate)} 句…",
+                        pct,
+                    )
+
+                raw = _post_chat_completion(
+                    client,
+                    api_base=llm_base,
+                    api_key=llm_key or "ollama",
+                    model=llm_model,
+                    messages=[
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                    ],
+                    temperature=0.25,
+                    json_mode=True,
+                )
+                parsed = _strip_reasoning_and_parse_json(raw)
+                # Handle case where model wraps inside {"target_lines": {...}} or {"translations": {...}}
+                if "0" not in parsed:
+                    for wrap_k in ("target_lines", "translations", "result", "data"):
+                        if isinstance(parsed.get(wrap_k), dict):
+                            parsed = parsed[wrap_k]
+                            break
+
+                for offset, r_idx in enumerate(batch_indices):
+                    val = str(parsed.get(str(offset), "")).strip()
+                    polished = _polish_subtitle_output_line(val, to_lang, preset_id)
+                    if polished:
+                        updated[r_idx][dst_field] = polished
+                    else:
+                        missed_positions.append(r_idx)
+
+            # Stage 3: Self-check & focused retry on any missed lines!
+            if missed_positions:
+                if progress:
+                    progress(f"🔍 Agent 阶段 3/3：正在对 {len(missed_positions)} 句漏译项进行焦点重译审校…", 96)
+                for r_idx in missed_positions[:25]:
+                    try:
+                        retry_txt = translate_single_cue_with_context(
+                            updated, r_idx, direction=direction, config=cfg
+                        )
+                        if retry_txt:
+                            updated[r_idx][dst_field] = retry_txt
+                    except Exception:
+                        pass
+
+        if progress:
+            progress("AI 影视翻译 Agent 精翻完成！", 100)
+        return updated
+
     if progress:
         progress(f"准备翻译 {len(source_texts)} 句台词…", 15)
-
-    if provider == "llm" and not (cfg.get("llm_key") or "").strip():
-        raise ValueError("使用 AI 大模型精翻时，请先填写 API Key（或切换为“免配置极速翻译”）。")
 
     translated_list = translate_texts_list(
         source_texts, direction=direction, config=cfg, progress=progress
     )
 
     for idx, trans_text in zip(indices_to_translate, translated_list):
-        # Remove trailing full-stop period in Chinese movie subtitles for cleaner look
-        if to_lang == "zh":
-            trans_text = re.sub(r"[。\.]$", "", trans_text.strip())
-        updated[idx][dst_field] = trans_text
+        updated[idx][dst_field] = _polish_subtitle_output_line(trans_text, to_lang, preset_id)
 
     if progress:
         progress("双语翻译全部完成！", 100)

@@ -1635,6 +1635,9 @@ function openModal(id) {
 }
 
 function closeModal(id) {
+  if (id === "modalAi") {
+    persistAiSettings(false);
+  }
   document.getElementById(id).classList.add("hidden");
 }
 
@@ -1645,7 +1648,7 @@ function bindModalsAndTopbar() {
 
   document.querySelectorAll(".modal-backdrop").forEach((bd) => {
     bd.addEventListener("click", (e) => {
-      if (e.target === bd) bd.classList.add("hidden");
+      if (e.target === bd) closeModal(bd.id);
     });
   });
 
@@ -1790,7 +1793,7 @@ function bindModalsAndTopbar() {
     }
   });
 
-  // 3. AI Modal
+  // 3. AI Modal & Persistent Agent Configuration
   document.getElementById("btnOpenAi").addEventListener("click", () => {
     syncAiModalVisibility();
     openModal("modalAi");
@@ -1804,8 +1807,108 @@ function bindModalsAndTopbar() {
     });
   });
 
-  document.getElementById("aiAsrEngine").addEventListener("change", syncAiModalVisibility);
-  document.getElementById("aiTransProvider").addEventListener("change", syncAiModalVisibility);
+  document.getElementById("aiAsrEngine").addEventListener("change", () => {
+    syncAiModalVisibility();
+    scheduleAiAutoSave();
+  });
+  document.getElementById("aiTransProvider").addEventListener("change", () => {
+    syncAiModalVisibility();
+    scheduleAiAutoSave();
+  });
+
+  document.getElementById("aiTransPreset")?.addEventListener("change", async () => {
+    const presetVal = document.getElementById("aiTransPreset").value;
+    if (presetVal === "custom") {
+      document.getElementById("wrapCustomPrompt")?.classList.remove("hidden");
+    }
+    scheduleAiAutoSave();
+  });
+
+  document.getElementById("btnTogglePromptEdit")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const wrap = document.getElementById("wrapCustomPrompt");
+    if (!wrap) return;
+    const willShow = wrap.classList.contains("hidden");
+    wrap.classList.toggle("hidden", !willShow);
+    if (willShow) {
+      const txtEl = document.getElementById("aiTransCustomPrompt");
+      if (txtEl && !txtEl.value.trim() && hasApi()) {
+        const pId = document.getElementById("aiTransPreset").value || "us_drama";
+        const res = await window.pywebview.api.get_agent_preset_prompts();
+        if (res && res.ok && res.presets && res.presets[pId]) {
+          txtEl.placeholder = `当前预设底稿：\n${res.presets[pId].prompt.slice(0, 140)}…\n（在此输入额外要求将自动叠加；若上方切换为“自定义”则完全替换底稿）`;
+        }
+      }
+    }
+  });
+
+  // One-click LLM Provider Quick-Fill Chips
+  document.querySelectorAll(".prov-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.getElementById("aiTransProvider").value = "llm";
+      document.getElementById("aiLlmBase").value = chip.dataset.base || "";
+      document.getElementById("aiLlmModel").value = chip.dataset.model || "";
+      syncAiModalVisibility();
+      scheduleAiAutoSave();
+      showToast(`已填入 ${chip.textContent} 接口地址与推荐模型，请粘贴 API Key 后点保存或测试连接`);
+      document.getElementById("aiLlmKey")?.focus();
+    });
+  });
+
+  // Toggle API Key visibility
+  document.getElementById("btnToggleKeyVis")?.addEventListener("click", () => {
+    const keyInp = document.getElementById("aiLlmKey");
+    if (!keyInp) return;
+    keyInp.type = keyInp.type === "password" ? "text" : "password";
+  });
+
+  // Auto-save on any input/change inside #modalAi
+  [
+    "aiAsrModelSize", "aiAsrLang", "aiAsrApiBase", "aiAsrApiKey", "aiAsrApiModel",
+    "aiLlmBase", "aiLlmKey", "aiLlmModel", "aiTransAgentMode",
+    "aiTransCustomPrompt", "aiTransContext", "aiGlossary",
+  ].forEach((fieldId) => {
+    const node = document.getElementById(fieldId);
+    if (!node) return;
+    node.addEventListener("input", () => {
+      if (fieldId === "aiLlmKey" && node.value.trim().length > 5 && document.getElementById("aiTransProvider").value === "free") {
+        document.getElementById("aiTransProvider").value = "llm";
+        syncAiModalVisibility();
+      }
+      scheduleAiAutoSave();
+    });
+    node.addEventListener("change", scheduleAiAutoSave);
+  });
+
+  // Explicit "Save Settings Only" button
+  document.getElementById("btnSaveAiSettings")?.addEventListener("click", async () => {
+    await persistAiSettings(true);
+  });
+
+  // Live LLM Connection Test button
+  document.getElementById("btnTestLlmApi")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btnTestLlmApi");
+    const settings = collectSettingsFromUI();
+    if (!hasApi()) {
+      await persistAiSettings(true);
+      return;
+    }
+    btn.disabled = true;
+    const origTxt = btn.textContent;
+    btn.textContent = "⏳ 测试中…";
+    try {
+      const res = await window.pywebview.api.test_llm_connection(settings);
+      if (res && res.ok) {
+        markAiSavedStatus(`✅ 连接成功 (${res.latency_ms}ms) · 配置已保存`);
+        showToast(`✅ API 连接成功！模型 ${res.model} 响应耗时 ${res.latency_ms}ms，API Key 已永久保存`, "success");
+      } else {
+        showToast((res && res.error) || "连接测试失败，请检查 Base URL、Key 与模型名", "error");
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origTxt;
+    }
+  });
 
   document.getElementById("btnStartAiRun").addEventListener("click", startAiRun);
 
@@ -1956,20 +2059,77 @@ function syncAiModalVisibility() {
   document.getElementById("wrapLlmApi").classList.toggle("hidden", transProv !== "llm");
 }
 
-function populateSettingsUI(s) {
-  state.settings = s || {};
-  document.getElementById("aiAsrEngine").value = s.asr_engine || "local";
-  document.getElementById("aiAsrModelSize").value = s.asr_model_size || "base";
-  document.getElementById("aiAsrLang").value = s.asr_source_lang || "en";
-  document.getElementById("aiAsrApiBase").value = s.asr_api_base || "https://api.openai.com/v1";
-  document.getElementById("aiAsrApiKey").value = s.asr_api_key || "";
-  document.getElementById("aiAsrApiModel").value = s.asr_api_model || "whisper-1";
+let aiSaveDebounceTimer = null;
 
-  document.getElementById("aiTransProvider").value = s.trans_provider || "free";
-  document.getElementById("aiGlossary").value = s.trans_glossary || "";
-  document.getElementById("aiLlmBase").value = s.llm_base || "https://api.deepseek.com/v1";
-  document.getElementById("aiLlmKey").value = s.llm_key || "";
-  document.getElementById("aiLlmModel").value = s.llm_model || "deepseek-chat";
+function markAiSavedStatus(msg) {
+  const lbl = document.getElementById("lblAiSaveStatus");
+  if (!lbl) return;
+  lbl.textContent = msg;
+  lbl.classList.add("saved-ok");
+}
+
+function scheduleAiAutoSave() {
+  if (aiSaveDebounceTimer) clearTimeout(aiSaveDebounceTimer);
+  aiSaveDebounceTimer = setTimeout(() => {
+    persistAiSettings(false);
+  }, 450);
+}
+
+async function persistAiSettings(showToastFeedback = false) {
+  const settings = collectSettingsFromUI();
+  state.settings = settings;
+  try {
+    localStorage.setItem("easysub_ai_settings_backup", JSON.stringify(settings));
+  } catch (_) {}
+
+  if (hasApi()) {
+    const res = await window.pywebview.api.update_user_settings(settings);
+    if (res && res.settings) state.settings = res.settings;
+  }
+  const hasKey = Boolean(settings.llm_key);
+  markAiSavedStatus(
+    hasKey
+      ? `✅ 已自动保存 API Key 与「${document.getElementById("aiTransPreset")?.selectedOptions?.[0]?.text?.slice(0, 14) || "精翻 Agent"}」配置`
+      : "✅ AI 配置已自动保存于本机"
+  );
+  if (showToastFeedback) {
+    showToast("✅ AI 配置与 API Key 已保存！现在可直接用于单句翻译、智能精修或批量生成", "success");
+  }
+}
+
+function populateSettingsUI(s) {
+  let merged = s || {};
+  if (!merged.llm_key) {
+    try {
+      const localBak = JSON.parse(localStorage.getItem("easysub_ai_settings_backup") || "{}");
+      merged = { ...localBak, ...merged };
+      if (!merged.llm_key && localBak.llm_key) merged.llm_key = localBak.llm_key;
+    } catch (_) {}
+  }
+  state.settings = merged;
+  document.getElementById("aiAsrEngine").value = merged.asr_engine || "local";
+  document.getElementById("aiAsrModelSize").value = merged.asr_model_size || "base";
+  document.getElementById("aiAsrLang").value = merged.asr_source_lang || "en";
+  document.getElementById("aiAsrApiBase").value = merged.asr_api_base || "https://api.openai.com/v1";
+  document.getElementById("aiAsrApiKey").value = merged.asr_api_key || "";
+  document.getElementById("aiAsrApiModel").value = merged.asr_api_model || "whisper-1";
+
+  document.getElementById("aiTransProvider").value = merged.trans_provider || "free";
+  ensureSelectOption(document.getElementById("aiTransPreset"), merged.trans_preset || "us_drama");
+  document.getElementById("aiTransAgentMode").checked = merged.trans_agent_mode !== false;
+  document.getElementById("aiTransCustomPrompt").value = merged.trans_custom_prompt || "";
+  document.getElementById("aiTransContext").value = merged.trans_context || "";
+  document.getElementById("aiGlossary").value = merged.trans_glossary || "";
+  document.getElementById("aiLlmBase").value = merged.llm_base || "https://api.deepseek.com/v1";
+  document.getElementById("aiLlmKey").value = merged.llm_key || "";
+  document.getElementById("aiLlmModel").value = merged.llm_model || "deepseek-chat";
+
+  if ((merged.trans_preset === "custom") || (merged.trans_custom_prompt || "").trim()) {
+    document.getElementById("wrapCustomPrompt")?.classList.remove("hidden");
+  }
+  if (merged.llm_key) {
+    markAiSavedStatus("✅ 已载入本机保存的 API Key 与翻译 Agent 配置");
+  }
   syncAiModalVisibility();
 }
 
@@ -1982,6 +2142,10 @@ function collectSettingsFromUI() {
     asr_api_key: document.getElementById("aiAsrApiKey").value.trim(),
     asr_api_model: document.getElementById("aiAsrApiModel").value.trim(),
     trans_provider: document.getElementById("aiTransProvider").value,
+    trans_preset: document.getElementById("aiTransPreset").value,
+    trans_agent_mode: document.getElementById("aiTransAgentMode").checked,
+    trans_custom_prompt: document.getElementById("aiTransCustomPrompt").value.trim(),
+    trans_context: document.getElementById("aiTransContext").value.trim(),
     trans_glossary: document.getElementById("aiGlossary").value.trim(),
     llm_base: document.getElementById("aiLlmBase").value.trim(),
     llm_key: document.getElementById("aiLlmKey").value.trim(),
@@ -2511,6 +2675,7 @@ async function initBootstrap() {
         en: { font: "Segoe UI", size: 50, color: "#FEF08A", outline_color: "#0F172A", outline: 2.8, shadow: 1.8, scale_x: 100, bold: true, italic: false },
       },
     ];
+    populateSettingsUI({});
   }
 
   renderPresetCards();
