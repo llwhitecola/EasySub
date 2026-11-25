@@ -63,6 +63,7 @@ const state = {
   subtitles: structuredClone(DEMO_SUBTITLES),
   selectedIdx: 0,
   searchQuery: "",
+  onlyMissingFilter: false,
 
   presets: [],
   activePresetId: "us_drama_default",
@@ -1290,6 +1291,10 @@ function renderTable() {
   const frag = document.createDocumentFragment();
 
   state.subtitles.forEach((cue, idx) => {
+    if (state.onlyMissingFilter) {
+      const hasBoth = Boolean((cue.zh || "").trim()) && Boolean((cue.en || "").trim());
+      if (hasBoth) return;
+    }
     if (q) {
       const hay = `${cue.zh || ""} ${cue.en || ""}`.toLowerCase();
       if (!hay.includes(q)) return;
@@ -1318,7 +1323,7 @@ function renderTable() {
       <div class="row-ops">
         <button class="op-btn act-play" title="定位并播放本句">${ROW_ICONS.play}</button>
         <button class="op-btn act-pos ${isTop ? "top-active" : ""}" title="切换位置：底部对白 ⇄ 顶部屏幕注释 (注释-雅黑)">${isTop ? "顶" : ROW_ICONS.topPin}</button>
-        <button class="op-btn act-trans" title="AI 单句互译补全 (自动应用专有名词表)">${ROW_ICONS.trans}</button>
+        <button class="op-btn act-trans" title="AI 智能补全本句（若为上下断句孤行，自动从相邻句语义切分补齐！）">${ROW_ICONS.trans}</button>
         <button class="op-btn act-split" title="智能拆句：将过长的本句按比例一分为二">${ROW_ICONS.split}</button>
         <button class="op-btn act-insert" title="在下方插入新行">${ROW_ICONS.insert}</button>
         <button class="op-btn act-merge" title="与下一句合并">${ROW_ICONS.merge}</button>
@@ -1465,27 +1470,20 @@ function renderTable() {
       const hasEn = Boolean((cue.en || "").trim());
       const hasZh = Boolean((cue.zh || "").trim());
       if (!hasEn && !hasZh) {
-        showToast("请先输入中文或英文任意一栏，再点单句互译");
+        showToast("请先输入中文或英文任意一栏，再点 AI 智能补全");
         return;
       }
-      const dir = hasEn && !hasZh ? "en_to_zh" : !hasEn && hasZh ? "zh_to_en" : "en_to_zh";
-      const srcTxt = dir === "en_to_zh" ? cue.en : cue.zh;
-      showToast("正在翻译该句…");
-      const res = await window.pywebview.api.translate_single_row(srcTxt, dir);
-      if (res.ok) {
+      showToast("正在智能分析上下文并补全该句…");
+      const res = await window.pywebview.api.smart_fix_single_orphan_or_translate(state.subtitles, idx);
+      if (res.ok && res.subtitles) {
         pushUndoSnapshot();
-        if (dir === "en_to_zh") {
-          cue.zh = res.translated;
-          zhInp.value = res.translated;
-        } else {
-          cue.en = res.translated;
-          enInp.value = res.translated;
-        }
+        state.subtitles = res.subtitles;
+        renderTable();
         updateSubtitleOverlay();
-        updateStatsBadges();
-        showToast("单句翻译完成！", "success");
+        drawWaveform();
+        showToast(res.message || "单句智能补全完成！", "success");
       } else {
-        showToast(res.error || "翻译失败", "error");
+        showToast(res.error || "补全失败", "error");
       }
     });
 
@@ -2098,6 +2096,88 @@ function bindTransportAndTableTools() {
   el.inpSearch.addEventListener("input", () => {
     state.searchQuery = el.inpSearch.value;
     renderTable();
+  });
+
+  document.getElementById("chkFilterMissing")?.addEventListener("change", (e) => {
+    state.onlyMissingFilter = e.target.checked;
+    renderTable();
+  });
+
+  // Foolproof 1-Click Smart Bilingual Fixer Wizard
+  document.getElementById("btnOpenSmartFix")?.addEventListener("click", async () => {
+    openModal("modalSmartFix");
+    document.getElementById("smartFixProgressBox")?.classList.add("hidden");
+    if (hasApi()) {
+      const diag = await window.pywebview.api.diagnose_subtitle_issues(state.subtitles);
+      if (diag && diag.ok) {
+        document.getElementById("diagOrphanCount").textContent = diag.split_orphan_count;
+        document.getElementById("diagSdhCount").textContent = `${diag.pure_sdh_row_count}行+${diag.inline_sdh_count}处`;
+        document.getElementById("diagOverlapCount").textContent = diag.time_overlap_count;
+        document.getElementById("diagMissingCount").textContent = diag.missing_trans_count;
+      }
+    }
+  });
+
+  document.getElementById("btnRunSmartFix")?.addEventListener("click", async () => {
+    if (!hasApi() || !state.subtitles.length) return;
+    const options = {
+      orphan_mode: document.getElementById("selOrphanFixMode").value,
+      clean_sdh: document.getElementById("chkFixSdh").checked,
+      fix_overlaps: document.getElementById("chkFixOverlaps").checked,
+      fill_missing_ai: document.getElementById("chkFixFillAi").checked,
+      skip_foreign_notes: document.getElementById("chkSkipForeignNotes").checked,
+    };
+    const runUsPunct = document.getElementById("chkFixUsPunct").checked;
+
+    const startRes = await window.pywebview.api.start_smart_bilingual_autofix(state.subtitles, options);
+    if (!startRes.ok) {
+      showToast(startRes.error || "无法启动精修任务", "error");
+      return;
+    }
+
+    const progBox = document.getElementById("smartFixProgressBox");
+    const progTxt = document.getElementById("smartFixProgressText");
+    const progBar = document.getElementById("smartFixProgressBar");
+    const btnRun = document.getElementById("btnRunSmartFix");
+
+    progBox.classList.remove("hidden");
+    btnRun.disabled = true;
+    progTxt.textContent = "正在启动双语智能精修…";
+    progBar.style.width = "15%";
+
+    const timer = setInterval(async () => {
+      const st = await window.pywebview.api.get_task_status();
+      if (st.running) {
+        progTxt.textContent = st.message || "正在精修中…";
+        progBar.style.width = `${Math.max(15, st.percent || 30)}%`;
+      } else {
+        clearInterval(timer);
+        btnRun.disabled = false;
+        if (st.error) {
+          progTxt.textContent = `出错：${st.error}`;
+          showToast(st.error, "error");
+        } else if (st.result && st.result.subtitles) {
+          pushUndoSnapshot();
+          let nextSubs = st.result.subtitles;
+          if (runUsPunct) {
+            const pRes = await window.pywebview.api.clean_us_drama_punctuation(nextSubs);
+            if (pRes && pRes.ok) nextSubs = pRes.subtitles;
+          }
+          state.subtitles = nextSubs;
+          state.selectedIdx = Math.min(state.selectedIdx, Math.max(0, state.subtitles.length - 1));
+          progBar.style.width = "100%";
+          progTxt.textContent = st.message || "精修完成！";
+          renderTable();
+          updateSubtitleOverlay();
+          drawWaveform();
+          showToast(st.message || "一键双语精修完成！", "success");
+          setTimeout(() => {
+            progBox.classList.add("hidden");
+            closeModal("modalSmartFix");
+          }, 550);
+        }
+      }
+    }, 300);
   });
 
   // Save Custom Style Preset

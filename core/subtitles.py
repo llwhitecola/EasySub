@@ -959,6 +959,9 @@ def merge_two_subtitles(
 
     result.extend(unmatched_secondary)
     result.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
+    # When align_mode == 'time', automatically absorb 1-to-N split-sentence orphans whose timestamps overlap!
+    if align_mode == "time":
+        result, _ = fix_split_orphan_lines(result, mode="merge")
     final_list = reindex_subtitles(result)
     if return_stats:
         return final_list, {
@@ -966,6 +969,435 @@ def merge_two_subtitles(
             "unmatched_secondary": len(unmatched_secondary),
         }
     return final_list
+
+
+_SDH_FULL_LINE_RE = re.compile(
+    r"^[\s♪♫♬\-\–\—]*(?:[\(\[（【][^)\]）】]*[\)\]）】][\s♪♫♬\-\–\—]*)+$"
+)
+_SDH_INLINE_TAG_RE = re.compile(r"[\(\[][^)\]]{1,70}[\)\]]")
+_FOREIGN_LANG_PREFIX_RE = re.compile(r"^[（\(【\[].{1,8}语[）\)】\]]")
+
+
+def is_pure_sdh_noise(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    if re.fullmatch(r"[\s♪♫♬\-\–\—]+", t):
+        return True
+    return bool(_SDH_FULL_LINE_RE.match(t))
+
+
+def is_foreign_lang_annotated(zh_text: str) -> bool:
+    return bool(_FOREIGN_LANG_PREFIX_RE.search((zh_text or "").strip()))
+
+
+def _find_best_orphan_neighbor(
+    subs: list[dict[str, Any]], idx: int
+) -> tuple[int, int]:
+    """
+    If subs[idx] is a non-top single-language row whose timestamp overlaps (or touches <= 60ms)
+    an adjacent row (idx-1 or idx+1) that possesses the OTHER language, return (neighbor_idx, overlap_ms).
+    Otherwise return (-1, -999999).
+    """
+    cur = subs[idx]
+    if cur.get("pos") == "top":
+        return -1, -999999
+    zh = (cur.get("zh") or "").strip()
+    en = (cur.get("en") or "").strip()
+    if not (bool(zh) ^ bool(en)):
+        return -1, -999999
+    if en and is_pure_sdh_noise(en):
+        return -1, -999999
+
+    c_s, c_e = int(cur["start_ms"]), int(cur["end_ms"])
+    best_nb = -1
+    best_ov = -999999
+    for nb in (idx - 1, idx + 1):
+        if nb < 0 or nb >= len(subs):
+            continue
+        other = subs[nb]
+        if other.get("pos") == "top":
+            continue
+        o_zh = (other.get("zh") or "").strip()
+        o_en = (other.get("en") or "").strip()
+        # Neighbor must have the language that cur is missing, AND also have cur's language
+        # (classic 1-to-2 split where neighbor got paired and cur was left orphaned!)
+        if zh and not (o_en and o_zh and not is_pure_sdh_noise(o_en)):
+            continue
+        if en and not (o_zh and o_en):
+            continue
+
+        ov = min(c_e, int(other["end_ms"])) - max(c_s, int(other["start_ms"]))
+        # Overlap > -60ms means overlapping in time or virtually contiguous (<=60ms gap)
+        if ov >= 0 and ov > best_ov:
+            best_ov = ov
+            best_nb = nb
+    return best_nb, best_ov
+
+
+def diagnose_bilingual_issues(subtitles: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Scan subtitle list and return exact counts of auto-fixable bilingual issues:
+      - split_orphan_count: 1-to-2 split-sentence orphans (like #19 '因为我知道' + #20 '...for, I know...')
+      - pure_sdh_row_count: pure SDH sound-effect rows like '(grunts)', '(breathes deeply)', '♪'
+      - inline_sdh_count: dialogue rows containing inline SDH tags like '(Paul) Sister...' or '... (chuckles)'
+      - foreign_note_count: foreign-language annotated ZH-only rows like '(哈克南语)...'
+      - missing_trans_count: genuine untranslated single-language dialogue rows
+      - time_overlap_count: adjacent bottom dialogue rows with overlapping timestamps
+    """
+    split_orphan_count = 0
+    pure_sdh_row_count = 0
+    inline_sdh_count = 0
+    foreign_note_count = 0
+    missing_trans_count = 0
+    time_overlap_count = 0
+
+    prev_bot_end = -1
+    for i, s in enumerate(subtitles):
+        zh = (s.get("zh") or "").strip()
+        en = (s.get("en") or "").strip()
+        is_top = s.get("pos") == "top"
+
+        if not is_top:
+            st = int(s.get("start_ms", 0))
+            ed = int(s.get("end_ms", 0))
+            if prev_bot_end > st + 10:
+                time_overlap_count += 1
+            prev_bot_end = max(prev_bot_end, ed)
+
+        if en and not zh and is_pure_sdh_noise(en):
+            pure_sdh_row_count += 1
+            continue
+
+        if en and (_SDH_INLINE_TAG_RE.search(en) or "♪" in en):
+            inline_sdh_count += 1
+
+        nb, _ = _find_best_orphan_neighbor(subtitles, i)
+        if nb >= 0:
+            split_orphan_count += 1
+            continue
+
+        if bool(zh) ^ bool(en):
+            if zh and is_foreign_lang_annotated(zh):
+                foreign_note_count += 1
+            else:
+                missing_trans_count += 1
+
+    return {
+        "ok": True,
+        "total": len(subtitles),
+        "split_orphan_count": split_orphan_count,
+        "pure_sdh_row_count": pure_sdh_row_count,
+        "inline_sdh_count": inline_sdh_count,
+        "foreign_note_count": foreign_note_count,
+        "missing_trans_count": missing_trans_count,
+        "time_overlap_count": time_overlap_count,
+    }
+
+
+def clean_sdh_and_hearing_tags(
+    subtitles: list[dict[str, Any]],
+    remove_empty_rows: bool = True,
+    clean_inline: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """
+    Strip English SDH hearing-impaired sound effects / speaker tags like '(grunts)', '[sighs]', '♪',
+    and optionally remove rows that become completely empty afterwards.
+    """
+    cleaned_list: list[dict[str, Any]] = []
+    removed_rows = 0
+    cleaned_inline = 0
+
+    for item in subtitles:
+        row = dict(item)
+        zh = (row.get("zh") or "").strip()
+        en = (row.get("en") or "").strip()
+
+        if en:
+            if is_pure_sdh_noise(en):
+                en = ""
+            elif clean_inline:
+                new_en = _SDH_INLINE_TAG_RE.sub(" ", en)
+                new_en = re.sub(r"[♪♫♬]+", " ", new_en)
+                new_en = re.sub(r"\s+", " ", new_en).strip()
+                # Clean orphan speaker hyphen if one half was an SDH tag like '- (gasps) - Run!' -> 'Run!'
+                if new_en.startswith("-") and " - " not in new_en[1:]:
+                    new_en = re.sub(r"^-\s*", "", new_en).strip()
+                if is_pure_sdh_noise(new_en):
+                    new_en = ""
+                if new_en != en:
+                    cleaned_inline += 1
+                    en = new_en
+
+        row["zh"] = zh
+        row["en"] = en
+        if not zh and not en and remove_empty_rows:
+            removed_rows += 1
+            continue
+        cleaned_list.append(row)
+
+    return reindex_subtitles(cleaned_list), {
+        "removed_rows": removed_rows,
+        "cleaned_inline": cleaned_inline,
+    }
+
+
+def _smart_split_long_sentence_by_hint(
+    long_text: str,
+    hint_first: str,
+    ratio_first: float,
+    is_english_long: bool = True,
+) -> tuple[str, str]:
+    """
+    Split `long_text` into (part1, part2) guided by semantic token overlap with `hint_first`
+    (e.g. neural translation of the first short fragment) + clause punctuation + length ratio!
+    """
+    txt = long_text.strip()
+    if not txt:
+        return "", ""
+
+    # Priority 0: explicit dual-speaker dialogue '- Speaker A - Speaker B'
+    dash_m = list(re.finditer(r"\s+-\s+", txt))
+    if len(dash_m) == 1:
+        idx = dash_m[0].start()
+        p1, p2 = txt[:idx].strip(), txt[idx:].strip()
+        if p1 and p2:
+            return p1, p2
+
+    ratio_first = max(0.12, min(0.88, ratio_first))
+    if not is_english_long:
+        # CJK splitting guided by punctuation + ratio
+        n = len(txt)
+        target = n * ratio_first
+        best_cut = max(1, min(n - 1, int(round(target))))
+        best_score = -1e9
+        for m in re.finditer(r"([，,。？！?!；;、\s]+)", txt):
+            cut = m.end()
+            if 1 <= cut <= n - 1:
+                sc = 4.0 - abs(cut - target) / max(1.0, n) * 12.0
+                if sc > best_score:
+                    best_score = sc
+                    best_cut = cut
+        return txt[:best_cut].strip(), txt[best_cut:].strip()
+
+    # English word-boundary splitting with semantic token matching against hint_first!
+    words = txt.split()
+    if len(words) < 2:
+        return txt, ""
+
+    stop_words = {"the", "a", "an", "to", "of", "in", "on", "at", "is", "are", "was", "were"}
+    hint_tokens = {
+        w
+        for w in re.findall(r"[a-z0-9']+", (hint_first or "").lower())
+        if len(w) >= 2 or w in {"i"}
+    }
+
+    total_chars = len(txt)
+    best_k = max(1, min(len(words) - 1, int(round(len(words) * ratio_first))))
+    best_score = -1e9
+
+    for k in range(1, len(words)):
+        left_str = " ".join(words[:k])
+        right_str = " ".join(words[k:])
+        char_ratio = len(left_str) / max(1, total_chars)
+
+        # 1) Distance from expected length ratio
+        score = -abs(char_ratio - ratio_first) * 9.0
+
+        # 2) Semantic overlap with hint_first (words in hint_first should land in left_str, NOT right_str!)
+        if hint_tokens:
+            left_toks = set(re.findall(r"[a-z0-9']+", left_str.lower()))
+            right_toks = set(re.findall(r"[a-z0-9']+", right_str.lower()))
+            for ht in hint_tokens:
+                weight = 1.2 if ht in stop_words else 3.2
+                if ht in left_toks:
+                    score += weight
+                if ht in right_toks:
+                    score -= weight * 0.7
+            extra_left = left_toks - hint_tokens - stop_words - {"for", "so", "but", "and", "or", "yet", "nor"}
+            score -= len(extra_left) * 1.1
+
+        # 3) Natural clause boundary bonus right at words[k-1]
+        prev_w = words[k - 1]
+        if prev_w.endswith((",", ";", ":", "—", "--", "?", "!", ".")):
+            # Avoid splitting right after an introductory 'for,' if hint has more words after it
+            if k == 1 and prev_w.lower() in {"for,", "so,", "but,", "and,", "well,", "oh,", "no,", "yes,"} and len(hint_tokens) >= 2:
+                score -= 1.0
+            else:
+                score += 2.6
+
+        if score > best_score:
+            best_score = score
+            best_k = k
+
+    return " ".join(words[:best_k]).strip(), " ".join(words[best_k:]).strip()
+
+
+def fix_split_orphan_lines(
+    subtitles: list[dict[str, Any]],
+    mode: str = "merge",
+    translator_fn: Any = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Automatically fix 1-to-2 split-sentence orphans (like #19 '因为我知道' + #20 '...for, I know...').
+      - mode='merge': Merge the short orphan fragment into its overlapping bilingual neighbor as 1 clean cue.
+      - mode='ai_split': Keep 2 short cues and semantically split the neighbor's long text across both cues!
+    """
+    work = [dict(x) for x in subtitles]
+    fixed_count = 0
+
+    if mode == "merge":
+        # Iterative pass so even 3-part splits merge cleanly
+        for _ in range(2):
+            i = 0
+            next_work: list[dict[str, Any]] = []
+            merged_in_pass = 0
+            used_skip: set[int] = set()
+            while i < len(work):
+                if i in used_skip:
+                    i += 1
+                    continue
+                nb, _ = _find_best_orphan_neighbor(work, i)
+                if nb == i + 1 and (i + 1) not in used_skip:
+                    # Orphan i precedes bilingual row i+1
+                    cur = work[i]
+                    nxt = dict(work[i + 1])
+                    nxt["start_ms"] = min(int(cur["start_ms"]), int(nxt["start_ms"]))
+                    nxt["end_ms"] = max(int(cur["end_ms"]), int(nxt["end_ms"]))
+                    if (cur.get("zh") or "").strip():
+                        nxt["zh"] = f"{cur['zh'].strip()} {nxt.get('zh', '').strip()}".strip()
+                    if (cur.get("en") or "").strip():
+                        nxt["en"] = f"{cur['en'].strip()} {nxt.get('en', '').strip()}".strip()
+                    next_work.append(nxt)
+                    used_skip.add(i + 1)
+                    fixed_count += 1
+                    merged_in_pass += 1
+                elif nb == i - 1 and next_work:
+                    # Orphan i follows bilingual row in next_work[-1]
+                    cur = work[i]
+                    prev = next_work[-1]
+                    prev["start_ms"] = min(int(prev["start_ms"]), int(cur["start_ms"]))
+                    prev["end_ms"] = max(int(prev["end_ms"]), int(cur["end_ms"]))
+                    if (cur.get("zh") or "").strip():
+                        prev["zh"] = f"{prev.get('zh', '').strip()} {cur['zh'].strip()}".strip()
+                    if (cur.get("en") or "").strip():
+                        prev["en"] = f"{prev.get('en', '').strip()} {cur['en'].strip()}".strip()
+                    fixed_count += 1
+                    merged_in_pass += 1
+                else:
+                    next_work.append(work[i])
+                i += 1
+            work = next_work
+            if merged_in_pass == 0:
+                break
+        return reindex_subtitles(work), fixed_count
+
+    # mode == 'ai_split': Keep both short cues and split the neighbor's long sentence!
+    pairs: list[tuple[int, int]] = []  # (first_idx, second_idx)
+    claimed: set[int] = set()
+    for i in range(len(work)):
+        if i in claimed:
+            continue
+        nb, _ = _find_best_orphan_neighbor(work, i)
+        if nb >= 0 and nb not in claimed:
+            first_i, second_i = (i, nb) if i < nb else (nb, i)
+            pairs.append((first_i, second_i))
+            claimed.add(first_i)
+            claimed.add(second_i)
+
+    if not pairs:
+        return reindex_subtitles(work), 0
+
+    # Collect first-part hints for translation if translator_fn is provided
+    zh_hints_needed: list[tuple[int, str]] = []
+    en_hints_needed: list[tuple[int, str]] = []
+    for p_idx, (fi, si) in enumerate(pairs):
+        r1, r2 = work[fi], work[si]
+        # Determine which language is missing on one of (r1, r2)
+        missing_en = not (r1.get("en") or "").strip() or not (r2.get("en") or "").strip()
+        if missing_en:
+            zh_hints_needed.append((p_idx, (r1.get("zh") or "").strip()))
+        else:
+            en_hints_needed.append((p_idx, (r1.get("en") or "").strip()))
+
+    hint_map: dict[int, str] = {}
+    if translator_fn is not None:
+        try:
+            if zh_hints_needed:
+                txts = [t for _, t in zh_hints_needed]
+                trans_list = translator_fn(txts, "zh_to_en")
+                for (p_idx, _), tr in zip(zh_hints_needed, trans_list):
+                    hint_map[p_idx] = tr
+            if en_hints_needed:
+                txts = [t for _, t in en_hints_needed]
+                trans_list = translator_fn(txts, "en_to_zh")
+                for (p_idx, _), tr in zip(en_hints_needed, trans_list):
+                    hint_map[p_idx] = tr
+        except Exception:
+            pass
+
+    for p_idx, (fi, si) in enumerate(pairs):
+        r1, r2 = work[fi], work[si]
+        missing_en = not (r1.get("en") or "").strip() or not (r2.get("en") or "").strip()
+        hint_first = hint_map.get(p_idx, "")
+
+        if missing_en:
+            long_en = (r1.get("en") or r2.get("en") or "").strip()
+            len1 = max(1, len((r1.get("zh") or "").strip()))
+            len2 = max(1, len((r2.get("zh") or "").strip()))
+            part1, part2 = _smart_split_long_sentence_by_hint(
+                long_en, hint_first, len1 / (len1 + len2), is_english_long=True
+            )
+            if part1 and part2:
+                r1["en"] = part1
+                r2["en"] = part2
+                fixed_count += 1
+        else:
+            long_zh = (r1.get("zh") or r2.get("zh") or "").strip()
+            len1 = max(1, len((r1.get("en") or "").strip()))
+            len2 = max(1, len((r2.get("en") or "").strip()))
+            part1, part2 = _smart_split_long_sentence_by_hint(
+                long_zh, hint_first, len1 / (len1 + len2), is_english_long=False
+            )
+            if part1 and part2:
+                r1["zh"] = part1
+                r2["zh"] = part2
+                fixed_count += 1
+
+        # Also clean up overlapping boundary timestamp between r1 and r2!
+        s1, e1 = int(r1["start_ms"]), int(r1["end_ms"])
+        s2, e2 = int(r2["start_ms"]), int(r2["end_ms"])
+        if e1 > s2:
+            # Split cleanly right at orphan's end (if r1 was the short orphan) or orphan's start!
+            if e1 < e2 - 250 and e1 > s1 + 250:
+                r2["start_ms"] = e1 + 20
+            elif s2 > s1 + 250 and s2 < e2 - 250:
+                r1["end_ms"] = s2 - 20
+            else:
+                mid = (max(s1, s2) + min(e1, e2)) // 2
+                r1["end_ms"] = max(s1 + 250, mid - 10)
+                r2["start_ms"] = min(e2 - 250, mid + 10)
+
+    return reindex_subtitles(work), fixed_count
+
+
+def fix_overlapping_timestamps(subtitles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Ensure chronological non-top subtitle rows do not overlap in time."""
+    out = [dict(x) for x in subtitles]
+    fixed = 0
+    prev_idx = -1
+    for i, row in enumerate(out):
+        if row.get("pos") == "top":
+            continue
+        if prev_idx >= 0:
+            prev = out[prev_idx]
+            if int(prev["end_ms"]) > int(row["start_ms"]):
+                new_prev_end = max(int(prev["start_ms"]) + 250, int(row["start_ms"]) - 20)
+                if new_prev_end < int(row["end_ms"]):
+                    prev["end_ms"] = new_prev_end
+                    fixed += 1
+        prev_idx = i
+    return out, fixed
 
 
 def format_us_drama_punctuation(subtitles: list[dict[str, Any]]) -> dict[str, Any]:

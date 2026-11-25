@@ -37,8 +37,13 @@ import webview
 # Only lightweight pure-Python subtitle parser is imported at startup for instant window launch!
 from core.subtitles import (
     DEFAULT_PRESETS,
+    _find_best_orphan_neighbor,
+    clean_sdh_and_hearing_tags,
+    diagnose_bilingual_issues,
     export_ass,
     export_srt,
+    fix_overlapping_timestamps,
+    fix_split_orphan_lines,
     format_us_drama_punctuation,
     load_subtitle_file,
     merge_internal_bilingual_lines,
@@ -371,6 +376,194 @@ class DesktopBridgeApi:
     def split_cue_item(self, cue: dict[str, Any]) -> dict[str, Any]:
         parts = split_subtitle_cue_in_two(cue)
         return {"ok": True, "parts": parts}
+
+    def diagnose_subtitle_issues(
+        self, subtitles: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return diagnose_bilingual_issues(subtitles)
+
+    def smart_fix_single_orphan_or_translate(
+        self, subtitles: list[dict[str, Any]], row_idx: int
+    ) -> dict[str, Any]:
+        """
+        If row_idx is a 1-to-2 split-sentence orphan overlapping its neighbor (like row #19 + #20),
+        semantically split the neighbor's long text into both rows and repair overlapping timestamps!
+        Otherwise fall back to normal single-row AI translation.
+        """
+        from core.media_ai import translate_subtitles, translate_texts_list
+
+        if row_idx < 0 or row_idx >= len(subtitles):
+            return {"ok": False, "error": "行号超出范围"}
+
+        settings = load_settings()
+        trans_cfg = {
+            "provider": settings.get("trans_provider", "free"),
+            "glossary": settings.get("trans_glossary", ""),
+            "llm_base": settings.get("llm_base", ""),
+            "llm_key": settings.get("llm_key", ""),
+            "llm_model": settings.get("llm_model", ""),
+        }
+
+        nb, _ = _find_best_orphan_neighbor(subtitles, row_idx)
+        if nb >= 0:
+            fi, si = (row_idx, nb) if row_idx < nb else (nb, row_idx)
+            pair_slice = [dict(subtitles[fi]), dict(subtitles[si])]
+            try:
+                fixed_pair, cnt = fix_split_orphan_lines(
+                    pair_slice,
+                    mode="ai_split",
+                    translator_fn=lambda txts, d: translate_texts_list(txts, d, trans_cfg),
+                )
+                if cnt > 0 and len(fixed_pair) == 2:
+                    updated = [dict(x) for x in subtitles]
+                    fixed_pair[0]["id"] = fi + 1
+                    fixed_pair[1]["id"] = si + 1
+                    updated[fi] = fixed_pair[0]
+                    updated[si] = fixed_pair[1]
+                    return {
+                        "ok": True,
+                        "mode": "split_neighbor",
+                        "subtitles": updated,
+                        "message": f"已智能识别上下句断句关联，自动从第 #{nb + 1} 句切分对应译文并消除时间重叠！",
+                    }
+            except Exception:
+                pass
+
+        cue = subtitles[row_idx]
+        has_en = bool((cue.get("en") or "").strip())
+        has_zh = bool((cue.get("zh") or "").strip())
+        if not has_en and not has_zh:
+            return {"ok": False, "error": "请先输入中文或英文任意一栏"}
+        direction = "en_to_zh" if (has_en and not has_zh) else ("zh_to_en" if (has_zh and not has_en) else "en_to_zh")
+        src_txt = cue.get("en") if direction == "en_to_zh" else cue.get("zh")
+        try:
+            res = translate_subtitles(
+                [{"id": 1, "start_ms": 0, "end_ms": 2000, "en": src_txt if direction == "en_to_zh" else "", "zh": src_txt if direction == "zh_to_en" else ""}],
+                direction=direction,
+                overwrite_existing=True,
+                config=trans_cfg,
+            )
+            out_txt = res[0]["zh"] if direction == "en_to_zh" else res[0]["en"]
+            updated = [dict(x) for x in subtitles]
+            if direction == "en_to_zh":
+                updated[row_idx]["zh"] = out_txt
+            else:
+                updated[row_idx]["en"] = out_txt
+            return {"ok": True, "mode": "single_trans", "subtitles": updated, "message": "单句翻译补全完成！"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def start_smart_bilingual_autofix(
+        self, subtitles: list[dict[str, Any]], options: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        One-click Foolproof Bilingual Subtitle Fixer Wizard:
+          - clean_sdh: Strip English SDH tags '(grunts)', '[sighs]' and remove empty noise rows
+          - orphan_mode: 'merge' (combine into 1 sentence) | 'ai_split' (split long sentence into 2 short cues) | 'none'
+          - fix_overlaps: Clamp overlapping bottom timestamps
+          - fill_missing_ai: AI-translate remaining untranslated single-language rows
+          - skip_foreign_notes: Skip '(哈克南语)...' alien/foreign-annotated rows when AI-translating
+        """
+        if STATE.get_task()["running"]:
+            return {"ok": False, "error": "已有后台任务正在运行中，请稍候…"}
+
+        def worker() -> None:
+            try:
+                from core.media_ai import translate_subtitles, translate_texts_list
+
+                STATE.set_task(True, "正在扫描并精修双语字幕…", 10)
+                work = [dict(x) for x in subtitles]
+                summary_parts: list[str] = []
+
+                settings = load_settings()
+                trans_cfg = {
+                    "provider": settings.get("trans_provider", "free"),
+                    "glossary": settings.get("trans_glossary", ""),
+                    "llm_base": settings.get("llm_base", ""),
+                    "llm_key": settings.get("llm_key", ""),
+                    "llm_model": settings.get("llm_model", ""),
+                }
+
+                # 1. Clean SDH sound-effect tags first so '(grunts)' rows don't interfere with orphan pairing!
+                if options.get("clean_sdh", True):
+                    STATE.set_task(True, "正在清理听障音效与括号噪音 (SDH)…", 25)
+                    work, sdh_st = clean_sdh_and_hearing_tags(
+                        work, remove_empty_rows=True, clean_inline=True
+                    )
+                    if sdh_st["removed_rows"] or sdh_st["cleaned_inline"]:
+                        summary_parts.append(
+                            f"清理音效空行 {sdh_st['removed_rows']} 条、行内括号 {sdh_st['cleaned_inline']} 处"
+                        )
+
+                # 2. Fix 1-to-2 split-sentence orphans (merge or AI semantic split)
+                orphan_mode = options.get("orphan_mode", "merge")
+                if orphan_mode in ("merge", "ai_split"):
+                    STATE.set_task(
+                        True,
+                        "正在合并断句孤行…" if orphan_mode == "merge" else "正在通过 AI 语义切分补齐断句孤行…",
+                        50,
+                    )
+                    work, fixed_orphans = fix_split_orphan_lines(
+                        work,
+                        mode=orphan_mode,
+                        translator_fn=(
+                            (lambda txts, d: translate_texts_list(txts, d, trans_cfg))
+                            if orphan_mode == "ai_split"
+                            else None
+                        ),
+                    )
+                    if fixed_orphans > 0:
+                        action_lbl = "吸附合并断句孤行" if orphan_mode == "merge" else "AI 切分对齐断句孤行"
+                        summary_parts.append(f"{action_lbl} {fixed_orphans} 处")
+
+                # 3. Repair remaining overlapping timestamps
+                if options.get("fix_overlaps", True):
+                    work, ov_cnt = fix_overlapping_timestamps(work)
+                    if ov_cnt > 0:
+                        summary_parts.append(f"消除时间轴重叠 {ov_cnt} 处")
+
+                # 4. Optional AI batch fill for remaining missing translations
+                if options.get("fill_missing_ai", False):
+                    skip_foreign = bool(options.get("skip_foreign_notes", True))
+                    before_missing = sum(
+                        1 for r in work if bool((r.get("zh") or "").strip()) ^ bool((r.get("en") or "").strip())
+                    )
+                    STATE.set_task(True, "正在调用 AI 自动补全剩余缺失译文…", 72)
+                    work = translate_subtitles(
+                        work,
+                        direction="en_to_zh",
+                        overwrite_existing=False,
+                        config=trans_cfg,
+                        progress=lambda msg, pct: STATE.set_task(True, msg, min(88, pct)),
+                        skip_foreign_notes=skip_foreign,
+                    )
+                    work = translate_subtitles(
+                        work,
+                        direction="zh_to_en",
+                        overwrite_existing=False,
+                        config=trans_cfg,
+                        progress=lambda msg, pct: STATE.set_task(True, msg, min(97, pct)),
+                        skip_foreign_notes=skip_foreign,
+                    )
+                    after_missing = sum(
+                        1 for r in work if bool((r.get("zh") or "").strip()) ^ bool((r.get("en") or "").strip())
+                    )
+                    filled = max(0, before_missing - after_missing)
+                    if filled > 0:
+                        summary_parts.append(f"AI 补全漏译 {filled} 句")
+
+                msg = (
+                    "一键精修完成：" + "，".join(summary_parts) + "！（可按 Ctrl+Z 撤销）"
+                    if summary_parts
+                    else "检查完毕：当前双语字幕已非常整洁，无需额外修复！"
+                )
+                STATE.set_task(False, msg, 100, result={"subtitles": work})
+            except Exception as exc:
+                traceback.print_exc()
+                STATE.set_task(False, "", 0, error=str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+        return {"ok": True}
 
     def update_user_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         return save_settings(settings)

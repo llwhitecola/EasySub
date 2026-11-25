@@ -18,7 +18,7 @@ from typing import Any, Callable
 import httpx
 import numpy as np
 
-from core.subtitles import has_cjk
+from core.subtitles import has_cjk, is_foreign_lang_annotated, is_pure_sdh_noise
 
 ProgressCallback = Callable[[str, int], None]
 
@@ -574,21 +574,63 @@ def _translate_batch_llm(
     return results
 
 
+def translate_texts_list(
+    source_texts: list[str],
+    direction: str = "en_to_zh",
+    config: dict[str, Any] | None = None,
+    progress: ProgressCallback | None = None,
+) -> list[str]:
+    if not source_texts:
+        return []
+    cfg = config or {}
+    provider = cfg.get("provider", "free")
+    to_lang = "zh" if direction == "en_to_zh" else "en"
+    glossary_pairs = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+
+    if provider == "llm":
+        llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
+        llm_key = (cfg.get("llm_key") or "").strip()
+        llm_model = (cfg.get("llm_model") or "deepseek-chat").strip()
+        if llm_key:
+            return _translate_batch_llm(
+                source_texts,
+                to_lang,
+                llm_base,
+                llm_key,
+                llm_model,
+                glossary_pairs=glossary_pairs,
+                progress=progress,
+            )
+
+    prepared_texts = _apply_glossary_placeholders(source_texts, glossary_pairs)
+    last_err = None
+    for fn_name, fn in (
+        ("极速神经网络批量翻译", _translate_batch_google_clients5),
+        ("MyMemory 并发翻译", _translate_batch_mymemory),
+    ):
+        try:
+            if progress:
+                progress(f"正在通过{fn_name}处理 ({len(source_texts)} 句)…", 45)
+            raw_trans = fn(prepared_texts, to_lang)
+            if len(raw_trans) == len(source_texts):
+                return _restore_glossary_placeholders(raw_trans, glossary_pairs)
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise RuntimeError(f"在线翻译请求失败，请检查网络连接或配置大模型 API：{last_err}")
+
+
 def translate_subtitles(
     subtitles: list[dict[str, Any]],
     direction: str = "en_to_zh",
     overwrite_existing: bool = False,
     config: dict[str, Any] | None = None,
     progress: ProgressCallback | None = None,
+    skip_foreign_notes: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Translate missing (or all) bilingual fields across subtitles.
     direction: 'en_to_zh' | 'zh_to_en'
-    config:
-      - provider: 'free' | 'llm'
-      - llm_base: e.g. 'https://api.deepseek.com/v1'
-      - llm_key: str
-      - llm_model: e.g. 'deepseek-chat'
     """
     cfg = config or {}
     provider = cfg.get("provider", "free")
@@ -603,9 +645,14 @@ def translate_subtitles(
     for idx, item in enumerate(updated):
         src_txt = (item.get(src_field) or "").strip()
         dst_txt = (item.get(dst_field) or "").strip()
-        if src_txt and (overwrite_existing or not dst_txt):
-            indices_to_translate.append(idx)
-            source_texts.append(src_txt)
+        if not src_txt or not (overwrite_existing or not dst_txt):
+            continue
+        if direction == "en_to_zh" and is_pure_sdh_noise(src_txt):
+            continue
+        if skip_foreign_notes and direction == "zh_to_en" and is_foreign_lang_annotated(src_txt):
+            continue
+        indices_to_translate.append(idx)
+        source_texts.append(src_txt)
 
     if not source_texts:
         return updated
@@ -613,44 +660,12 @@ def translate_subtitles(
     if progress:
         progress(f"准备翻译 {len(source_texts)} 句台词…", 15)
 
-    glossary_pairs = parse_glossary_pairs(str(cfg.get("glossary") or ""))
+    if provider == "llm" and not (cfg.get("llm_key") or "").strip():
+        raise ValueError("使用 AI 大模型精翻时，请先填写 API Key（或切换为“免配置极速翻译”）。")
 
-    translated_list: list[str] = []
-    if provider == "llm":
-        llm_base = (cfg.get("llm_base") or "https://api.deepseek.com/v1").strip()
-        llm_key = (cfg.get("llm_key") or "").strip()
-        llm_model = (cfg.get("llm_model") or "deepseek-chat").strip()
-        if not llm_key:
-            raise ValueError("使用 AI 大模型精翻时，请先填写 API Key（或切换为“免配置极速翻译”）。")
-        translated_list = _translate_batch_llm(
-            source_texts,
-            to_lang,
-            llm_base,
-            llm_key,
-            llm_model,
-            glossary_pairs=glossary_pairs,
-            progress=progress,
-        )
-    else:
-        # Automatic multi-engine zero-config translation: Google clients5 -> MyMemory
-        prepared_texts = _apply_glossary_placeholders(source_texts, glossary_pairs)
-        last_err = None
-        for fn_name, fn in (
-            ("极速神经网络批量翻译", _translate_batch_google_clients5),
-            ("MyMemory 并发翻译", _translate_batch_mymemory),
-        ):
-            try:
-                if progress:
-                    progress(f"正在通过{fn_name}批量生成双语字幕…", 45)
-                raw_trans = fn(prepared_texts, to_lang)
-                if len(raw_trans) == len(source_texts):
-                    translated_list = _restore_glossary_placeholders(raw_trans, glossary_pairs)
-                    break
-            except Exception as exc:
-                last_err = exc
-                continue
-        if len(translated_list) != len(source_texts):
-            raise RuntimeError(f"在线翻译请求失败，请检查网络连接或配置大模型 API：{last_err}")
+    translated_list = translate_texts_list(
+        source_texts, direction=direction, config=cfg, progress=progress
+    )
 
     for idx, trans_text in zip(indices_to_translate, translated_list):
         # Remove trailing full-stop period in Chinese movie subtitles for cleaner look

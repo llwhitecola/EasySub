@@ -17,7 +17,7 @@
       <div class="brand-meta">
         <div class="brand-title">
           傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.4.2</span>
+          <span class="badge-pro">Studio v1.5</span>
         </div>
         <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
           <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
@@ -356,12 +356,17 @@
             <input type="checkbox" class="ui-switch" id="chkSeekOnClick" checked />
             <span>点选行自动跳转画面</span>
           </label>
+          <label class="switch-label" style="margin-left:6px;" title="只显示缺少中文或缺少英文的单语行，无需在几千句里肉眼翻找">
+            <input type="checkbox" class="ui-switch" id="chkFilterMissing" />
+            <span>仅看缺译</span>
+          </label>
         </div>
 
         <div class="table-actions">
           <div class="search-box-wrap">
             <input type="text" id="inpSearch" class="input-search" placeholder="过滤中文或英文台词…" />
           </div>
+          <button class="btn btn-magic btn-sm" id="btnOpenSmartFix" title="一键傻瓜式自动处理：一英拆两中断句孤行、英文听障音效括号 (SDH)、时间轴打架与 AI 漏译补齐">✨ 智能精修</button>
           <button class="btn btn-ghost btn-sm" id="btnOpenFindReplace" title="批量查找与替换人名或词句 (快捷键 Ctrl+H)">🔎 查找替换</button>
           <button class="btn btn-step btn-sm" id="btnCleanPunct" title="一键按美剧字幕组规范清洗：中文句中逗号转空格、去除句末句号、全角问号感叹号转半角">🧹 美剧标点清洗</button>
           <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行">🧲 合并中英行</button>
@@ -759,6 +764,99 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" data-close="modalFindReplace">关闭</button>
         <button class="btn btn-primary" id="btnRunReplaceAll">⚡ 全部替换</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 6: Foolproof 1-Click Smart Bilingual Fixer Wizard -->
+  <div class="modal-backdrop hidden" id="modalSmartFix">
+    <div class="modal-card modal-lg" style="width:650px;">
+      <div class="modal-header">
+        <h3>✨ 一键双语傻瓜精修向导</h3>
+        <button class="modal-close" data-close="modalSmartFix">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="diag-grid-4">
+          <div class="diag-pill">
+            <span class="diag-num" id="diagOrphanCount">0</span>
+            <span class="diag-lbl">🧩 断句孤行 (一英拆两中)</span>
+          </div>
+          <div class="diag-pill">
+            <span class="diag-num" id="diagSdhCount">0</span>
+            <span class="diag-lbl">🔇 听障音效行 / 括号</span>
+          </div>
+          <div class="diag-pill">
+            <span class="diag-num" id="diagOverlapCount">0</span>
+            <span class="diag-lbl">⏱️ 上下句时间重叠</span>
+          </div>
+          <div class="diag-pill">
+            <span class="diag-num" id="diagMissingCount">0</span>
+            <span class="diag-lbl">🌐 待补译单语对白</span>
+          </div>
+        </div>
+
+        <div class="fix-opt-list">
+          <div class="fix-opt-card">
+            <div class="fix-opt-head">
+              <span class="fix-opt-title">🧩 断句孤行智能处理（专治合轴后“上一句只有中文、下一句中英都有”）</span>
+            </div>
+            <select id="selOrphanFixMode" class="input-sm" style="margin-top:4px;">
+              <option value="merge" selected>⚡ 自动吸附合并为完整一句（推荐 · 零等待秒成，如 19+20 行合并共用完整英文）</option>
+              <option value="ai_split">🤖 AI 语义智能切分长句填回空行（保留原两段短时间轴，自动把长句一分为二）</option>
+              <option value="none">暂不处理断句孤行</option>
+            </select>
+          </div>
+
+          <label class="fix-opt-card fix-opt-row">
+            <input type="checkbox" class="ui-switch" id="chkFixSdh" checked />
+            <div class="fix-opt-meta">
+              <div class="fix-opt-title">🔇 自动清除英文听障音效与括号噪音 (SDH)</div>
+              <div class="fix-opt-desc">一键剔除蓝光原盘自带的 (grunts)、(breathes deeply)、[sighs]、♪ 等音效词，并自动删掉纯音效空行</div>
+            </div>
+          </label>
+
+          <label class="fix-opt-card fix-opt-row">
+            <input type="checkbox" class="ui-switch" id="chkFixOverlaps" checked />
+            <div class="fix-opt-meta">
+              <div class="fix-opt-title">⏱️ 自动修平上下句重叠时间轴</div>
+              <div class="fix-opt-desc">自动修剪前后打架的时间戳，彻底杜绝播放时两句双语字幕在画面底部上下跳闪堆叠</div>
+            </div>
+          </label>
+
+          <div class="fix-opt-card" style="cursor:default;">
+            <label class="fix-opt-row" style="cursor:pointer;">
+              <input type="checkbox" class="ui-switch" id="chkFixFillAi" />
+              <div class="fix-opt-meta">
+                <div class="fix-opt-title">🤖 AI 自动翻译补全剩余缺译单语行（免配置开箱即用 / 支持大模型）</div>
+                <div class="fix-opt-desc">将清理后仍然缺少英文或中文的对白自动翻译补齐，提升全片双语完整度至接近 100%</div>
+              </div>
+            </label>
+            <label class="switch-label" style="margin:6px 0 0 47px;">
+              <input type="checkbox" class="ui-switch" id="chkSkipForeignNotes" checked />
+              <span style="font-size:11.5px;color:#94a3b8;">智能跳过“(哈克南语)”、“(弗雷曼语)”等外星语/外语标注行</span>
+            </label>
+          </div>
+
+          <label class="fix-opt-card fix-opt-row">
+            <input type="checkbox" class="ui-switch" id="chkFixUsPunct" />
+            <div class="fix-opt-meta">
+              <div class="fix-opt-title">🧹 顺带执行美剧标点规范化清洗</div>
+              <div class="fix-opt-desc">中文句内逗号转空格、去除句末句号、全角问号感叹号统一转清爽半角</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="ai-progress-box hidden" id="smartFixProgressBox">
+          <div class="ai-prog-label" id="smartFixProgressText">正在扫描精修中…</div>
+          <div class="ai-prog-track">
+            <div class="ai-prog-bar" id="smartFixProgressBar" style="width: 12%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span style="margin-right:auto;font-size:11.5px;color:#8b9bb4;">💡 所有修改均支持按 <kbd>Ctrl+Z</kbd> 一键完整撤销</span>
+        <button class="btn btn-ghost" data-close="modalSmartFix">关闭</button>
+        <button class="btn btn-ai" id="btnRunSmartFix">🚀 一键傻瓜全自动精修</button>
       </div>
     </div>
   </div>
