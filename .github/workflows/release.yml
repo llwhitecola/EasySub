@@ -1,0 +1,115 @@
+# 推一个版本标签就自动打包、试运行并发布：
+#   git tag v1.8.0 && git push origin v1.8.0
+# 推到 ci/ 开头的分支是演练：步骤完全相同，但只建草稿 Release，核对后立即删除。
+name: 打包发布
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
+    branches: ["ci/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  build:
+    name: 打包并试运行
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 确定版本号
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-ci.$GITHUB_RUN_NUMBER"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "$v"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12.10"
+
+      - name: 安装固定版本的依赖
+        run: |
+          python -m pip install --disable-pip-version-check --no-deps -r requirements-build.txt
+          python -m pip check
+
+      - name: 打包
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python tools/build_exe.py "$env:VERSION"
+
+      - name: 试运行（不通过就不发布）
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python tools/smoke_test.py "dist/EasySubStudio-v$env:VERSION.exe" smoke.png
+
+      - name: 保存试运行截图
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: 试运行截图
+          path: smoke.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: 交给发布步骤
+        uses: actions/upload-artifact@v7
+        with:
+          name: exe
+          path: dist/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  # Only this job may write to the repository, and it runs no third-party packages.
+  release:
+    name: 发布
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: exe
+          path: dist
+
+      - name: 生成标题和说明
+        run: |
+          python3 tools/release_notes.py "$VERSION" "dist/EasySubStudio-v$VERSION.exe" build
+          cat build/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 发布到 GitHub
+        if: github.ref_type == 'tag'
+        run: |
+          flags=(--verify-tag)
+          case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "v$VERSION" "dist/EasySubStudio-v$VERSION.exe" \
+            --title "$(cat build/title.txt)" --notes-file build/notes.md "${flags[@]}"
+
+      - name: 演练：建草稿、核对、删除
+        if: github.ref_type == 'branch'
+        run: |
+          gh release create "v$VERSION" "dist/EasySubStudio-v$VERSION.exe" --draft \
+            --title "$(cat build/title.txt)" --notes-file build/notes.md --target "$GITHUB_SHA"
+          trap 'gh release delete "v$VERSION" --yes' EXIT
+          want=$(stat -c %s "dist/EasySubStudio-v$VERSION.exe")
+          got=$(gh release view "v$VERSION" --json assets -q '.assets[0].size')
+          echo "本地 $want 字节，草稿附件 $got 字节"
+          test "$want" = "$got"

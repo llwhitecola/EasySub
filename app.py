@@ -64,6 +64,7 @@ else:
 
 USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 UI_DIR = BUNDLE_DIR / "ui"
+VERSION_PATH = BUNDLE_DIR / "version.txt"  # only inside the exe, written by tools/build_exe.py
 SETTINGS_PATH = USER_DATA_DIR / "settings.json"
 CUSTOM_PRESETS_PATH = USER_DATA_DIR / "custom_presets.json"
 AUTOSAVE_PATH = USER_DATA_DIR / "autosave.json"
@@ -432,6 +433,7 @@ class DesktopBridgeApi:
             "presets": DEFAULT_PRESETS + load_custom_presets(),
             "settings": load_settings(),
             "app_dir": str(APP_DIR),
+            "version": VERSION_PATH.read_text(encoding="utf-8").strip() if VERSION_PATH.exists() else "",
             "autosave_meta": autosave_meta,
         }
 

@@ -151,6 +151,7 @@ async function boot() {
 
   await whenReady(); // in a plain browser this simply never resolves
   const data = await callQuiet("get_initial_bootstrap");
+  byId("appVersion").textContent = data.version ? `EasySub Studio v${data.version}` : "EasySub Studio 源码运行";
   if (data.presets?.length) {
     state.presets = data.presets;
     applyStyle(data.presets[0], data.presets[0].id);

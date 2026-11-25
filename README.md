@@ -43,10 +43,29 @@
 
 ## 打包独立单文件 `.exe`
 
+需要 Python 3.12（依赖版本是按它固定的）：
+
 ```bash
-pip install pyinstaller pillow
-python -m PyInstaller --noconfirm --onefile --noconsole --name "傻瓜双语字幕工坊" --icon "icon.ico" --add-data "ui;ui" --collect-all webview --collect-all pythonnet --collect-all clr_loader --collect-data faster_whisper --hidden-import core.media_ai --hidden-import core.sup_export --hidden-import faster_whisper --hidden-import ctranslate2 --hidden-import onnxruntime --hidden-import httpx --hidden-import PIL.Image --exclude-module av --exclude-module cryptography --exclude-module hf_xet --exclude-module PIL._avif app.py
+pip install -r requirements-build.txt
+python tools/build_exe.py 1.8.0
+python tools/smoke_test.py dist/EasySubStudio-v1.8.0.exe
 ```
+
+第三条会启动 exe 检查一遍再自动关掉，数据写在临时目录。
+
+## 发布新版本
+
+1. 写更新说明 `release-notes/v1.8.0.md`：第一行 `# 标题` 是 Release 标题，其余是正文。下载说明和 SHA-256 会自动加上。不写也可以，会用提交记录代替。
+2. 提交到 `main`，然后推标签：
+
+   ```bash
+   git tag v1.8.0
+   git push origin v1.8.0
+   ```
+
+GitHub Actions 会打包、试运行，通过后建好 Release 并上传 exe；试运行不通过就不会发布。进度在仓库的 **Actions** 页面。`v1.8.0-beta1` 这样带后缀的标签会发布为预发布版。
+
+想先演练，把改动推到 `ci/` 开头的分支：步骤相同，但只建草稿并在核对后删除。
 
 ## 目录结构
 
@@ -58,3 +77,6 @@ python -m PyInstaller --noconfirm --onefile --noconsole --name "傻瓜双语字�
 - `ui/css/`：设计变量（`tokens.css`）与各区域样式；浅色 / 深色、四套氛围色都从同一组变量派生
 - `ui/js/`：原生 ES 模块，无需构建。`store.js` 状态与撤销、`subs-render.js` 与 libass 对齐的字幕预览、`timeline.js` 时间轴、`script.js` 虚拟台词列表、`palette.js` 命令面板
 - `ui/fonts/`：界面用的思源黑体 / 思源宋体子集（SIL OFL 1.1，见 `OFL.txt`）
+- `tools/`：打包（`build_exe.py`）、exe 试运行检查（`smoke_test.py`）、发布说明生成（`release_notes.py`）
+- `release-notes/`：每个版本的更新说明，发布时自动填进 Release
+- `.github/workflows/release.yml`：推版本标签后自动打包、试运行、发布
