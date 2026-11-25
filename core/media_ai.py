@@ -62,7 +62,10 @@ def ensure_playable_video(video_path: str | Path, temp_dir: Path) -> Path:
     """
     src = Path(video_path)
     ext = src.suffix.lower()
-    if ext in (".mp4", ".webm", ".m4v", ".mp3", ".wav", ".m4a", ".ogg"):
+    if ext in (".mp4", ".webm", ".m4v", ".mp3", ".wav", ".m4a", ".ogg", ".flac"):
+        return src
+    # Stream large MKV/MOV files (>1.2 GB, e.g. Blu-ray REMUX) directly without copying tens of GBs to Temp!
+    if ext in (".mkv", ".mov") and src.stat().st_size > 1_200_000_000:
         return src
 
     temp_dir.mkdir(parents=True, exist_ok=True)

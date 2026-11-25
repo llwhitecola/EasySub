@@ -28,6 +28,10 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
+# Ensure local 127.0.0.1 media/UI server bypasses any Windows system proxy
+os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
+
 import webview
 
 # Only lightweight pure-Python subtitle parser is imported at startup for instant window launch!
@@ -160,8 +164,25 @@ def save_settings(new_settings: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+_MEDIA_MIME_MAP: dict[str, str] = {
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+}
+
+
 class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
-    """Serves UI static files and streams local video files with HTTP Range support."""
+    """Serves UI static files and streams local video files with HTTP/1.1 Range support."""
+
+    protocol_version = "HTTP/1.1"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(UI_DIR), **kwargs)
@@ -170,40 +191,55 @@ class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
         # Silence noisy per-chunk console logs
         return
 
+    def do_HEAD(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/media":
+            self._serve_media_range(send_body=False)
+            return
+        super().do_HEAD()
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/media":
-            self._serve_media_range(parsed.query)
+            self._serve_media_range(send_body=True)
             return
         super().do_GET()
 
-    def _serve_media_range(self, query_str: str) -> None:
+    def _serve_media_range(self, send_body: bool = True) -> None:
         media_file = STATE.playable_path
         if not media_file or not media_file.exists():
             self.send_error(HTTPStatus.NOT_FOUND, "No media loaded")
             return
 
         file_size = media_file.stat().st_size
-        ctype, _ = mimetypes.guess_type(str(media_file))
-        if not ctype:
-            ctype = "video/mp4"
+        ext = media_file.suffix.lower()
+        ctype = _MEDIA_MIME_MAP.get(ext) or mimetypes.guess_type(str(media_file))[0] or "video/mp4"
 
         range_header = self.headers.get("Range")
         start = 0
-        end = file_size - 1
+        end = max(0, file_size - 1)
         status = HTTPStatus.OK
 
         if range_header:
-            m = re.match(r"bytes=(\d*)-(\d*)", range_header)
+            m = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
             if m:
                 if m.group(1):
                     start = int(m.group(1))
-                if m.group(2):
+                elif m.group(2):
+                    # Suffix byte-range-spec: bytes=-500
+                    suffix_len = int(m.group(2))
+                    start = max(0, file_size - suffix_len)
+                if m.group(1) and m.group(2):
                     end = min(file_size - 1, int(m.group(2)))
-                if start < file_size:
-                    status = HTTPStatus.PARTIAL_CONTENT
+                if start >= file_size and file_size > 0:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{file_size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = HTTPStatus.PARTIAL_CONTENT
 
-        length = max(0, end - start + 1)
+        length = max(0, end - start + 1) if file_size > 0 else 0
         try:
             self.send_response(status)
             self.send_header("Content-Type", ctype)
@@ -213,6 +249,9 @@ class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(length))
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
+
+            if not send_body or length <= 0:
+                return
 
             with media_file.open("rb") as f:
                 f.seek(start)

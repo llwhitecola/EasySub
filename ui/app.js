@@ -51,8 +51,12 @@ const state = {
   hasRealVideo: false,
   videoName: "",
   videoStem: "双语字幕",
+  mediaDurationMs: 0,
   durationMs: 18000,
   currentTimeMs: 1200,
+  pendingVideoSeekMs: null,
+  lastManualSeekAt: 0,
+  lastPlayingIdx: -1,
   demoPlaying: false,
   demoLastTick: 0,
 
@@ -237,11 +241,33 @@ function reindexSubtitles() {
 // Video & Playback Engine (Supports both Real Video & Built-in Demo Timer)
 // ---------------------------------------------------------------------------
 
+function syncDurationFromContent() {
+  let maxSubEnd = 0;
+  for (let i = 0; i < state.subtitles.length; i++) {
+    const e = Number(state.subtitles[i].end_ms) || 0;
+    if (e > maxSubEnd) maxSubEnd = e;
+  }
+  if (state.hasRealVideo && state.mediaDurationMs > 0) {
+    state.durationMs = Math.max(state.mediaDurationMs, maxSubEnd + 1000);
+  } else {
+    state.durationMs = Math.max(maxSubEnd + 3000, 18000);
+  }
+}
+
 function seekToMs(ms) {
+  syncDurationFromContent();
   const clamped = Math.max(0, Math.min(state.durationMs || 36000000, Math.round(ms)));
   state.currentTimeMs = clamped;
+  state.lastManualSeekAt = performance.now();
   if (state.hasRealVideo) {
-    el.video.currentTime = clamped / 1000;
+    if (el.video.readyState >= 1) {
+      state.pendingVideoSeekMs = null;
+      try {
+        el.video.currentTime = clamped / 1000;
+      } catch (_) {}
+    } else {
+      state.pendingVideoSeekMs = clamped;
+    }
   }
   updateTimeReadout();
   updateSubtitleOverlay();
@@ -254,21 +280,49 @@ function isPlaying() {
   return state.hasRealVideo ? !el.video.paused : state.demoPlaying;
 }
 
+function startPlaybackFromCurrentPos() {
+  if (state.hasRealVideo) {
+    if (state.pendingVideoSeekMs === null && el.video.readyState >= 1) {
+      const diffSec = Math.abs(el.video.currentTime - state.currentTimeMs / 1000);
+      if (diffSec > 0.25) {
+        try {
+          el.video.currentTime = state.currentTimeMs / 1000;
+        } catch (_) {}
+      }
+    }
+    const p = el.video.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } else {
+    syncDurationFromContent();
+    const wasPlaying = state.demoPlaying;
+    state.demoPlaying = true;
+    state.demoLastTick = performance.now();
+    syncPlayButtonUI();
+    if (!wasPlaying) requestAnimationFrame(demoLoopTick);
+  }
+}
+
 function togglePlayPause() {
+  syncDurationFromContent();
   if (state.hasRealVideo) {
     if (el.video.paused) {
-      el.video.play();
+      if (state.currentTimeMs >= state.durationMs - 100) {
+        seekToMs(0);
+      }
+      startPlaybackFromCurrentPos();
     } else {
       el.video.pause();
     }
   } else {
-    state.demoPlaying = !state.demoPlaying;
     if (state.demoPlaying) {
-      if (state.currentTimeMs >= state.durationMs - 100) state.currentTimeMs = 0;
-      state.demoLastTick = performance.now();
-      requestAnimationFrame(demoLoopTick);
+      state.demoPlaying = false;
+      syncPlayButtonUI();
+    } else {
+      if (state.currentTimeMs >= state.durationMs - 100) {
+        state.currentTimeMs = 0;
+      }
+      startPlaybackFromCurrentPos();
     }
-    syncPlayButtonUI();
   }
 }
 
@@ -281,7 +335,7 @@ function syncPlayButtonUI() {
 
 function demoLoopTick(now) {
   if (!state.demoPlaying || state.hasRealVideo) return;
-  const dt = (now - state.demoLastTick) * Number(el.selPlaybackRate.value || 1);
+  const dt = Math.min(120, Math.max(0, now - state.demoLastTick)) * Number(el.selPlaybackRate.value || 1);
   state.demoLastTick = now;
   state.currentTimeMs += dt;
 
@@ -313,7 +367,7 @@ function replaySelectedCue() {
   const cue = state.subtitles[state.selectedIdx];
   if (!cue) return;
   seekToMs(cue.start_ms);
-  if (!isPlaying()) togglePlayPause();
+  startPlaybackFromCurrentPos();
 }
 
 function updateTimeReadout() {
@@ -324,14 +378,18 @@ function updateTimeReadout() {
 // Smooth playhead animation for real HTML5 video
 function startRealVideoRaf() {
   function tick() {
-    if (state.hasRealVideo && !el.video.paused) {
-      state.currentTimeMs = Math.round(el.video.currentTime * 1000);
-      handleSingleCueLoopCheck();
-      updateTimeReadout();
-      updateSubtitleOverlay();
-      highlightPlayingRow();
-      ensurePlayheadVisible(true);
-      drawWaveform();
+    if (state.hasRealVideo && !el.video.paused && !el.video.seeking && state.pendingVideoSeekMs === null) {
+      const videoMs = Math.round(el.video.currentTime * 1000);
+      const sinceManual = performance.now() - state.lastManualSeekAt;
+      if (sinceManual > 220 || Math.abs(videoMs - state.currentTimeMs) < 1200) {
+        state.currentTimeMs = videoMs;
+        handleSingleCueLoopCheck();
+        updateTimeReadout();
+        updateSubtitleOverlay();
+        highlightPlayingRow();
+        ensurePlayheadVisible(true);
+        drawWaveform();
+      }
     }
     requestAnimationFrame(tick);
   }
@@ -775,13 +833,25 @@ function getTimelineTotalDurationSec() {
 }
 
 function ensurePlayheadVisible(smoothFollow = false) {
-  const x = (state.currentTimeMs / 1000) * state.pxPerSec;
+  const pps = getEffectivePxPerSec();
+  const x = (state.currentTimeMs / 1000) * pps;
   const sc = el.waveformScroll;
   const viewLeft = sc.scrollLeft;
   const viewRight = viewLeft + sc.clientWidth;
   if (x < viewLeft + 40 || x > viewRight - 60) {
     sc.scrollLeft = Math.max(0, x - sc.clientWidth * (smoothFollow ? 0.25 : 0.45));
   }
+}
+
+function formatRulerTick(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 function drawWaveform() {
@@ -819,22 +889,31 @@ function drawWaveform() {
   ctx.lineTo(width, midY + 0.5);
   ctx.stroke();
 
-  // Time ticks
-  const stepSec = effectivePxPerSec >= 110 ? 1 : effectivePxPerSec >= 55 ? 2 : 5;
+  const visLeftPx = Math.max(0, scrollWrap.scrollLeft - 140);
+  const visRightPx = scrollWrap.scrollLeft + scrollWrap.clientWidth + 140;
+
+  // Adaptive time ticks (never overlap even on 3-hour movies!)
+  const tickCandidates = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900];
+  let stepSec = 900;
+  for (const cand of tickCandidates) {
+    if (cand * effectivePxPerSec >= 72) {
+      stepSec = cand;
+      break;
+    }
+  }
   ctx.font = "10px Consolas, monospace";
   ctx.fillStyle = "#8b9bb4";
   ctx.strokeStyle = "rgba(148, 163, 184, 0.08)";
 
-  for (let s = 0; s <= totalSec; s += stepSec) {
+  const firstTick = Math.max(0, Math.floor(visLeftPx / effectivePxPerSec / stepSec) * stepSec);
+  const lastTick = Math.min(totalSec, Math.ceil(visRightPx / effectivePxPerSec));
+  for (let s = firstTick; s <= lastTick; s += stepSec) {
     const x = Math.round(s * effectivePxPerSec) + 0.5;
     ctx.beginPath();
     ctx.moveTo(x, 16);
     ctx.lineTo(x, height);
     ctx.stroke();
-
-    const mins = Math.floor(s / 60);
-    const secs = s % 60;
-    ctx.fillText(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`, x + 4, 13.5);
+    ctx.fillText(formatRulerTick(s), x + 4, 13.5);
   }
 
   // Symmetrical gradient audio waveform
@@ -863,10 +942,11 @@ function drawWaveform() {
     }
   }
 
-  // Subtitle regions (glass pills with top accent bar; cyan tint for top-screen annotations!)
+  // Subtitle regions (viewport-culled for silky 60fps on 2000+ cues!)
   state.subtitles.forEach((cue, idx) => {
     const x1 = (cue.start_ms / 1000) * effectivePxPerSec;
     const x2 = Math.max(x1 + 6, (cue.end_ms / 1000) * effectivePxPerSec);
+    if (x2 < visLeftPx || x1 > visRightPx) return;
     const w = x2 - x1;
     const isSel = idx === state.selectedIdx;
     const isTop = cue.pos === "top";
@@ -1132,10 +1212,12 @@ function updateStatsBadges() {
 
 function selectRow(idx, allowSeek = true) {
   if (idx < 0 || idx >= state.subtitles.length) return;
+  const prevIdx = state.selectedIdx;
   state.selectedIdx = idx;
-  el.subTableBody.querySelectorAll(".sub-row").forEach((r) => {
-    r.classList.toggle("selected", Number(r.dataset.idx) === idx);
-  });
+  if (prevIdx !== idx) {
+    el.subTableBody.querySelector(`.sub-row[data-idx="${prevIdx}"]`)?.classList.remove("selected");
+  }
+  el.subTableBody.querySelector(`.sub-row[data-idx="${idx}"]`)?.classList.add("selected");
   if (allowSeek && el.chkSeekOnClick.checked) {
     seekToMs(state.subtitles[idx].start_ms + 20);
   } else {
@@ -1151,9 +1233,14 @@ function scrollRowIntoView(idx) {
 function highlightPlayingRow() {
   const active = findActiveCueAt(state.currentTimeMs);
   const activeIdx = active ? active.idx : -1;
-  el.subTableBody.querySelectorAll(".sub-row").forEach((r) => {
-    r.classList.toggle("playing-now", Number(r.dataset.idx) === activeIdx);
-  });
+  if (activeIdx === state.lastPlayingIdx) return;
+  if (state.lastPlayingIdx >= 0) {
+    el.subTableBody.querySelector(`.sub-row[data-idx="${state.lastPlayingIdx}"]`)?.classList.remove("playing-now");
+  }
+  state.lastPlayingIdx = activeIdx;
+  if (activeIdx >= 0) {
+    el.subTableBody.querySelector(`.sub-row[data-idx="${activeIdx}"]`)?.classList.add("playing-now");
+  }
 }
 
 function formatDurSec(startMs, endMs) {
@@ -1195,6 +1282,9 @@ function checkLineLengthWarn(zhInp, enInp) {
 }
 
 function renderTable() {
+  syncDurationFromContent();
+  updateTimeReadout();
+  state.lastPlayingIdx = -1;
   updateStatsBadges();
   const q = state.searchQuery.trim().toLowerCase();
   const frag = document.createDocumentFragment();
@@ -1244,9 +1334,19 @@ function renderTable() {
 
     row.addEventListener("mousedown", (e) => {
       if (e.target.closest(".row-ops")) return;
+      const isIdxCell = Boolean(e.target.closest(".col-idx"));
       const isTextInput = e.target.classList.contains("sub-input") || e.target.classList.contains("time-input");
+      if (isIdxCell) {
+        selectRow(idx, false);
+        seekToMs(cue.start_ms + 20);
+        return;
+      }
       if (state.selectedIdx !== idx) {
         selectRow(idx, !isTextInput || el.chkSeekOnClick.checked);
+      } else if (!isTextInput && el.chkSeekOnClick.checked) {
+        seekToMs(cue.start_ms + 20);
+      } else if (isTextInput && el.chkSeekOnClick.checked && (state.currentTimeMs < cue.start_ms || state.currentTimeMs > cue.end_ms)) {
+        seekToMs(cue.start_ms + 20);
       }
     });
 
@@ -1259,6 +1359,8 @@ function renderTable() {
         pushUndoSnapshot();
         cue.start_ms = parsed;
         if (cue.end_ms <= cue.start_ms) cue.end_ms = cue.start_ms + 1000;
+        syncDurationFromContent();
+        updateTimeReadout();
         syncSingleRowTimeInputs(idx);
         updateSubtitleOverlay();
         drawWaveform();
@@ -1272,6 +1374,8 @@ function renderTable() {
       if (parsed !== null && parsed > cue.start_ms) {
         pushUndoSnapshot();
         cue.end_ms = parsed;
+        syncDurationFromContent();
+        updateTimeReadout();
         syncSingleRowTimeInputs(idx);
         updateSubtitleOverlay();
         drawWaveform();
@@ -1452,9 +1556,11 @@ async function handleVideoLoadedResponse(res) {
   }
   state.demoPlaying = false;
   state.hasRealVideo = true;
+  state.pendingVideoSeekMs = null;
   state.videoName = res.video_name;
   state.videoStem = res.video_stem || "双语字幕";
-  if (res.duration_ms > 0) state.durationMs = res.duration_ms;
+  state.mediaDurationMs = res.duration_ms > 0 ? res.duration_ms : 0;
+  syncDurationFromContent();
 
   el.demoBackdrop.classList.add("hidden");
   el.video.src = res.media_url;
@@ -1484,7 +1590,10 @@ async function handleVideoLoadedResponse(res) {
     const wf = await window.pywebview.api.get_video_waveform();
     if (wf && wf.ok && wf.peaks && wf.peaks.length) {
       state.waveform = wf;
-      if (wf.duration_ms > state.durationMs) state.durationMs = wf.duration_ms;
+      if (wf.duration_ms > state.mediaDurationMs) {
+        state.mediaDurationMs = wf.duration_ms;
+        syncDurationFromContent();
+      }
       updateTimeReadout();
       drawWaveform();
     }
@@ -1510,8 +1619,12 @@ window.onNativeFileDropped = async function (kind, fullPath) {
       state.subtitles = res.subtitles;
       state.selectedIdx = 0;
       renderTable();
-      updateSubtitleOverlay();
-      drawWaveform();
+      if (!isPlaying() && state.subtitles.length) {
+        seekToMs(state.subtitles[0].start_ms + 20);
+      } else {
+        updateSubtitleOverlay();
+        drawWaveform();
+      }
       showToast(`已载入字幕：${res.file_name} (共 ${res.count} 句)`, "success");
     } else if (res.error) {
       showToast(res.error, "error");
@@ -1557,8 +1670,12 @@ function bindModalsAndTopbar() {
       state.selectedIdx = 0;
       closeModal("modalImport");
       renderTable();
-      updateSubtitleOverlay();
-      drawWaveform();
+      if (!isPlaying() && state.subtitles.length) {
+        seekToMs(state.subtitles[0].start_ms + 20);
+      } else {
+        updateSubtitleOverlay();
+        drawWaveform();
+      }
       showToast(`成功导入 ${res.file_name}（共 ${res.count} 句）`, "success");
     } else if (res.error) {
       showToast(res.error, "error");
@@ -1951,10 +2068,27 @@ function bindTransportAndTableTools() {
   el.video.addEventListener("pause", syncPlayButtonUI);
   el.video.addEventListener("loadedmetadata", () => {
     if (el.video.duration && Number.isFinite(el.video.duration)) {
-      state.durationMs = Math.round(el.video.duration * 1000);
+      state.mediaDurationMs = Math.round(el.video.duration * 1000);
+      syncDurationFromContent();
       updateTimeReadout();
       drawWaveform();
     }
+    if (state.pendingVideoSeekMs !== null) {
+      const targetSec = state.pendingVideoSeekMs / 1000;
+      state.pendingVideoSeekMs = null;
+      try {
+        el.video.currentTime = targetSec;
+      } catch (_) {}
+    }
+  });
+  el.video.addEventListener("error", () => {
+    if (!state.hasRealVideo) return;
+    state.hasRealVideo = false;
+    state.pendingVideoSeekMs = null;
+    el.demoBackdrop.classList.remove("hidden");
+    syncDurationFromContent();
+    updateTimeReadout();
+    showToast("当前系统解码器暂不支持直接预览该视频编码，已切换为时间轴画布模式（字幕预览、打轴、AI 听写与导出均正常可用）");
   });
 
   document.getElementById("btnMarkStart").addEventListener("click", markCurrentStart);
