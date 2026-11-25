@@ -1,0 +1,198 @@
+/* ==========================================================================
+   EasySub — Design tokens
+
+   Nothing here is pure black or white. Every neutral carries the mood's hue
+   (--h); surfaces are translucent and float on a slow, living backdrop (aura.js).
+   --c1…--c4 are the mood's colours: the orb, the primary button, progress.
+   Coral (--now) is reserved for one meaning: this moment.
+   ========================================================================== */
+
+@font-face {
+  font-family: "EasySub Serif";
+  src: url("../fonts/EasySubSerif.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
+/* Interface wording only. Variable 350–650, so 500 and 600 are real weights. */
+@font-face {
+  font-family: "EasySub Sans";
+  src: url("../fonts/EasySubSans.woff2") format("woff2");
+  font-weight: 350 650;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+4E00-9FFF, U+FF00-FFEF;
+}
+
+@property --h { syntax: "<number>"; inherits: true; initial-value: 254; }
+@property --c1 { syntax: "<color>"; inherits: true; initial-value: #8aa5ea; }
+@property --c2 { syntax: "<color>"; inherits: true; initial-value: #b193e0; }
+@property --c3 { syntax: "<color>"; inherits: true; initial-value: #e59aa5; }
+@property --c4 { syntax: "<color>"; inherits: true; initial-value: #76bfd8; }
+
+:root {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "EasySub Sans", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-text: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-num: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-serif: "EasySub Serif", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+
+  --r-s: 6px;
+  --r-m: 9px;
+  --r-l: 12px;
+  --r-xl: 18px;
+  --r-full: 999px;
+
+  --ease: cubic-bezier(0.2, 0.75, 0.2, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.8, 0.3);
+  --spring: linear(
+    0, 0.011, 0.043 2.3%, 0.161 4.8%, 0.535 10.6%, 0.742 14.6%, 0.886 18.7%,
+    0.98 23.1%, 1.008 25.9%, 1.02 28.9%, 1.024 32.2%, 1.022 36.1%,
+    1.007 49.4%, 1.001 59.4%, 0.999 70.7%, 1
+  );
+  --t-1: 120ms;
+  --t-2: 200ms;
+  --t-3: 320ms;
+
+  --orb:
+    radial-gradient(62% 62% at 28% 24%, color-mix(in oklab, var(--c1) 80%, white), transparent 72%),
+    radial-gradient(58% 58% at 78% 30%, var(--c2), transparent 72%),
+    radial-gradient(70% 70% at 66% 86%, var(--c3), transparent 74%),
+    radial-gradient(64% 64% at 18% 82%, var(--c4), transparent 72%),
+    var(--c1);
+
+  transition: --h 900ms var(--ease), --c1 900ms var(--ease), --c2 900ms var(--ease), --c3 900ms var(--ease), --c4 900ms var(--ease);
+}
+
+/* ---------- 浅色 ---------- */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --app: oklch(0.957 0.012 var(--h));
+  --card: oklch(0.994 0.004 var(--h) / 0.74);
+  --sheet: oklch(0.989 0.006 var(--h));
+  --inset: oklch(0.5 0.07 var(--h) / 0.085);
+  --field: oklch(0.998 0.003 var(--h) / 0.82);
+  --float: oklch(0.99 0.008 var(--h));
+  --thumb: oklch(0.998 0.004 var(--h));
+
+  --ink: oklch(0.285 0.066 var(--h));
+  --ink-a: 0.285 0.066 var(--h);
+  --on-ink: oklch(0.985 0.01 var(--h));
+
+  --tx-1: oklch(0.245 0.038 var(--h));
+  --tx-2: oklch(0.42 0.04 var(--h));
+  --tx-3: oklch(0.51 0.038 var(--h));
+
+  --line: oklch(0.35 0.07 var(--h) / 0.1);
+  --line-2: oklch(0.35 0.07 var(--h) / 0.2);
+  --hover: oklch(0.45 0.09 var(--h) / 0.07);
+  --press: oklch(0.45 0.09 var(--h) / 0.12);
+  --sel: oklch(0.998 0.004 var(--h) / 0.78);
+  --sel-line: oklch(0.35 0.07 var(--h) / 0.1);
+  --edge: oklch(1 0 0 / 0.55);
+
+  --now: oklch(0.69 0.165 33);
+  --now-tx: oklch(0.54 0.165 33);
+  --now-a: 0.69 0.165 33;
+  --ok: oklch(0.49 0.11 160);
+  --warn: oklch(0.54 0.165 33);
+  --err: oklch(0.53 0.19 25);
+
+  --shadow-card: 0 1px 1px oklch(0.3 0.06 var(--h) / 0.04), 0 4px 12px -2px oklch(0.3 0.08 var(--h) / 0.05), 0 22px 48px -16px oklch(0.3 0.1 var(--h) / 0.12);
+  --shadow-btn: 0 1px 2px oklch(0.3 0.07 var(--h) / 0.08);
+  --shadow-stage: 0 2px 6px oklch(0.2 0.06 var(--h) / 0.16), 0 26px 50px -24px oklch(0.22 0.09 var(--h) / 0.55);
+  --btn: oklch(1 0 0 / 0.62);
+  --glass: oklch(0.99 0.008 var(--h) / 0.82);
+  --shadow-2: 0 10px 32px oklch(0.3 0.08 var(--h) / 0.16), 0 1px 4px oklch(0.3 0.06 var(--h) / 0.08);
+  --shadow-3: 0 28px 80px oklch(0.28 0.09 var(--h) / 0.26), 0 4px 18px oklch(0.28 0.07 var(--h) / 0.1);
+  --scrim: oklch(0.55 0.07 var(--h) / 0.34);
+
+  --tl-bg: oklch(0.998 0.004 var(--h) / 0.3);
+  --tl-ruler: oklch(0.5 0.04 var(--h));
+  --tl-grid: oklch(0.35 0.07 var(--h) / 0.075);
+  --tl-wave: oklch(0.45 0.1 var(--h) / 0.24);
+  --tl-wave-on: oklch(0.42 0.12 var(--h) / 0.78);
+  --tl-cue: oklch(0.998 0.004 var(--h) / 0.55);
+  --tl-cue-hover: oklch(0.998 0.004 var(--h) / 0.82);
+  --tl-cue-sel: oklch(0.998 0.003 var(--h) / 0.95);
+  --tl-cue-line: oklch(0.35 0.07 var(--h) / 0.17);
+  --tl-cue-line-sel: oklch(0.34 0.09 var(--h));
+  --tl-tx: oklch(0.245 0.038 var(--h));
+  --tl-tx-2: oklch(0.46 0.04 var(--h));
+  --tl-top: oklch(0.55 0.11 160 / 0.7);
+  --tl-hatch: oklch(0.45 0.09 var(--h) / 0.14);
+  --tl-clash: oklch(0.64 0.17 33 / 0.75);
+  --tl-solid: oklch(0.985 0.008 var(--h) / 0.9);
+  --tl-shade: oklch(0.3 0.1 var(--h) / 0.22);
+  --tl-pill: oklch(0.285 0.066 var(--h));
+  --tl-pill-tx: oklch(0.985 0.01 var(--h));
+
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%235d6075' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.75 3 3 3-3'/%3E%3C/svg%3E");
+}
+
+/* ---------- 深色 ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --app: oklch(0.186 0.024 var(--h));
+  --card: oklch(0.218 0.022 var(--h) / 0.72);
+  --sheet: oklch(0.25 0.026 var(--h));
+  --inset: oklch(0.85 0.05 var(--h) / 0.085);
+  --field: oklch(0.16 0.026 var(--h) / 0.6);
+  --float: oklch(0.278 0.028 var(--h));
+  --thumb: oklch(0.42 0.034 var(--h));
+
+  --ink: oklch(0.925 0.028 var(--h));
+  --ink-a: 0.925 0.028 var(--h);
+  --on-ink: oklch(0.22 0.05 var(--h));
+
+  --tx-1: oklch(0.945 0.014 var(--h));
+  --tx-2: oklch(0.795 0.026 var(--h));
+  --tx-3: oklch(0.69 0.028 var(--h));
+
+  --line: oklch(0.9 0.04 var(--h) / 0.1);
+  --line-2: oklch(0.9 0.04 var(--h) / 0.2);
+  --hover: oklch(0.9 0.05 var(--h) / 0.07);
+  --press: oklch(0.9 0.05 var(--h) / 0.13);
+  --sel: oklch(0.9 0.06 var(--h) / 0.115);
+  --sel-line: oklch(0.9 0.04 var(--h) / 0.08);
+  --edge: oklch(1 0.02 var(--h) / 0.07);
+
+  --now: oklch(0.72 0.15 33);
+  --now-tx: oklch(0.79 0.125 33);
+  --now-a: 0.72 0.15 33;
+  --ok: oklch(0.79 0.1 160);
+  --warn: oklch(0.79 0.125 33);
+  --err: oklch(0.72 0.15 22);
+
+  --shadow-card: 0 1px 2px oklch(0.08 0.02 var(--h) / 0.2), 0 24px 56px -18px oklch(0.06 0.03 var(--h) / 0.5);
+  --shadow-btn: 0 1px 2px oklch(0.08 0.02 var(--h) / 0.3);
+  --shadow-stage: 0 2px 8px oklch(0.06 0.02 var(--h) / 0.4), 0 30px 60px -26px oklch(0.05 0.03 var(--h) / 0.9);
+  --btn: oklch(0.9 0.04 var(--h) / 0.075);
+  --glass: oklch(0.275 0.028 var(--h) / 0.82);
+  --shadow-2: 0 12px 36px oklch(0.08 0.03 var(--h) / 0.55), 0 1px 4px oklch(0.08 0.02 var(--h) / 0.35);
+  --shadow-3: 0 30px 90px oklch(0.06 0.03 var(--h) / 0.7), 0 4px 20px oklch(0.06 0.02 var(--h) / 0.45);
+  --scrim: oklch(0.12 0.03 var(--h) / 0.6);
+
+  --tl-bg: oklch(0.14 0.026 var(--h) / 0.34);
+  --tl-ruler: oklch(0.7 0.03 var(--h));
+  --tl-grid: oklch(0.9 0.05 var(--h) / 0.07);
+  --tl-wave: oklch(0.86 0.06 var(--h) / 0.28);
+  --tl-wave-on: oklch(0.88 0.07 var(--h) / 0.92);
+  --tl-cue: oklch(0.9 0.06 var(--h) / 0.075);
+  --tl-cue-hover: oklch(0.9 0.06 var(--h) / 0.12);
+  --tl-cue-sel: oklch(0.9 0.06 var(--h) / 0.165);
+  --tl-cue-line: oklch(0.9 0.05 var(--h) / 0.17);
+  --tl-cue-line-sel: oklch(0.925 0.04 var(--h));
+  --tl-tx: oklch(0.945 0.014 var(--h));
+  --tl-tx-2: oklch(0.78 0.026 var(--h));
+  --tl-top: oklch(0.79 0.1 160 / 0.7);
+  --tl-hatch: oklch(0.9 0.05 var(--h) / 0.13);
+  --tl-clash: oklch(0.74 0.14 33 / 0.8);
+  --tl-solid: oklch(0.21 0.024 var(--h) / 0.92);
+  --tl-shade: oklch(0.05 0.02 var(--h) / 0.6);
+  --tl-pill: oklch(0.925 0.028 var(--h));
+  --tl-pill-tx: oklch(0.22 0.05 var(--h));
+
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23b9bccb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.75 3 3 3-3'/%3E%3C/svg%3E");
+}

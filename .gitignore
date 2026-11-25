@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Local virtual environment
+.venv/
+
 # PyInstaller build artifacts
 build/
 build_dir/
@@ -13,6 +16,7 @@ dist/
 settings.json
 custom_presets.json
 autosave.json
+autosave.prev.json
 webview_cache/
 easysub_studio_cache/
 .env

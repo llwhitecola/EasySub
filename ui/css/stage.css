@@ -1,0 +1,174 @@
+/* ==========================================================================
+   Screen: stage, subtitle overlay, scrubber, transport
+   ========================================================================== */
+
+.screen { display: grid; grid-template-rows: minmax(0, 1fr) 18px 56px; min-width: 0; min-height: 0; }
+
+.screen-room { min-height: 0; padding: 12px 12px 6px; }
+.stage-fit { width: 100%; height: 100%; display: grid; place-items: center; container-type: size; }
+.stage {
+  position: relative;
+  width: min(100cqw, 177.778cqh);
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  background: #000;
+  box-shadow: var(--shadow-stage);
+  overflow: hidden;
+}
+/* a hairline of light along the frame */
+.stage::after { content: ""; position: absolute; inset: 0; z-index: 5; border-radius: inherit; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.09), inset 0 1px 0 oklch(1 0 0 / 0.12); pointer-events: none; }
+.stage > canvas, .stage > video { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage > video { object-fit: contain; background: #000; visibility: hidden; }
+.has-video .stage > video { visibility: visible; }
+.has-video .scene { visibility: hidden; }
+.sub-canvas { pointer-events: none; z-index: 3; }
+
+/* ---------- Empty-stage prompt ---------- */
+.stage-hero {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 34%;
+  translate: -50% -50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 40px;
+  text-align: center;
+  color: #fff;
+  transition: opacity var(--t-3) var(--ease), scale var(--t-3) var(--ease);
+}
+.stage-hero strong { font: 500 clamp(21px, 4.5cqw, 40px)/1.25 var(--font-serif); white-space: nowrap; min-height: 1.25em; }
+.stage-hero em { font: 400 clamp(13px, 2.1cqw, 19px)/1.4 var(--font-serif); font-style: normal; white-space: nowrap; color: rgb(255 255 255 / 0.78); min-height: 1.4em; }
+.hero-cta { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 8px 17px 8px 13px; border-radius: var(--r-full); font-size: 13px; white-space: nowrap; background: rgb(255 255 255 / 0.13); backdrop-filter: blur(14px) saturate(1.3); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.22), 0 8px 24px -8px rgb(0 0 0 / 0.35); transition: background var(--t-2), transform var(--t-2) var(--spring); }
+.stage-hero:hover .hero-cta { background: rgb(255 255 255 / 0.28); }
+.hero-cta .i { width: 15px; height: 15px; transition: transform var(--t-3) var(--spring); }
+.stage-hero:hover .hero-cta .i { transform: rotate(90deg); }
+.ch { display: inline-block; white-space: pre; animation: ch-in 620ms var(--ease) backwards; }
+@keyframes ch-in { from { opacity: 0; filter: blur(7px); transform: translateY(0.3em); } }
+.stage-hero strong, .stage-hero em { transition: opacity 300ms var(--ease), filter 300ms var(--ease); }
+.stage-hero.swap strong, .stage-hero.swap em { opacity: 0; filter: blur(6px); }
+.stage-hero:active { scale: 0.985; }
+.stage-hero:focus-visible { outline-color: #fff; border-radius: 16px; }
+.stage[data-tone="light"] .stage-hero { color: oklch(0.26 0.06 var(--h)); }
+.stage[data-tone="light"] .stage-hero em { color: oklch(0.36 0.06 var(--h)); }
+.stage[data-tone="light"] .hero-cta { background: rgb(255 255 255 / 0.42); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.5); }
+.is-playing .stage-hero, .has-media .stage-hero { opacity: 0; pointer-events: none; visibility: hidden; scale: 1.02; transition: opacity var(--t-3) var(--ease), scale var(--t-3) var(--ease), visibility 0s linear var(--t-3); }
+
+/* ---------- Stage corner tools ---------- */
+.scene-switch, .stage-tools {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgb(16 20 28 / 0.46);
+  backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--t-2) var(--ease), transform var(--t-2) var(--ease);
+}
+.scene-switch { left: 10px; gap: 5px; padding: 5px 6px; }
+.stage-tools { right: 10px; }
+.stage:hover .scene-switch, .stage:hover .stage-tools, .scene-switch:focus-within, .stage-tools:focus-within { opacity: 1; transform: none; }
+.has-video .scene-switch { display: none; }
+.stage-tools .icon-btn { width: 28px; height: 28px; color: rgb(255 255 255 / 0.82); }
+.stage-tools .icon-btn:hover { background: rgb(255 255 255 / 0.16); color: #fff; }
+.stage-tools .icon-btn[aria-pressed="true"] { background: rgb(255 255 255 / 0.24); color: #fff; }
+.scene-switch button { width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3); transition: box-shadow var(--t-1), transform var(--t-2) var(--spring); }
+.scene-switch button:hover { transform: scale(1.1); }
+.scene-switch button[aria-checked="true"] { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3), 0 0 0 2px rgb(20 20 20 / 0.56), 0 0 0 3.5px #fff; }
+.sw-dark { background: oklch(0.32 0.06 var(--h)); }
+.sw-mid { background: oklch(0.72 0.08 var(--h)); }
+.sw-light { background: oklch(0.95 0.02 var(--h)); }
+
+/* ---------- Grab the subtitle on the picture ---------- */
+.sub-frame { position: absolute; z-index: 4; border-radius: 9px; cursor: ns-resize; touch-action: none; transition: box-shadow var(--t-1) var(--ease), background var(--t-1) var(--ease); }
+.sub-frame:hover { box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.72), 0 0 0 2.5px rgb(0 0 0 / 0.2); background: rgb(255 255 255 / 0.06); }
+.sub-frame.drag { box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgb(0 0 0 / 0.25); }
+.sub-frame.snap { box-shadow: 0 0 0 1.5px var(--now), 0 0 0 2.5px rgb(0 0 0 / 0.25); }
+.sub-frame b { position: absolute; left: 50%; bottom: calc(100% + 7px); translate: -50% 4px; padding: 2px 9px; border-radius: var(--r-full); font-weight: 500; font-size: 11.5px; white-space: nowrap; color: #fff; background: rgb(20 20 24 / 0.72); opacity: 0; transition: opacity var(--t-1), translate var(--t-2) var(--spring); pointer-events: none; }
+.sub-frame:hover b, .sub-frame.drag b { opacity: 1; translate: -50% 0; }
+.is-playing .sub-frame:not(:hover) { box-shadow: none; }
+
+/* ---------- Safe areas ---------- */
+.guides { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity var(--t-2) var(--ease); }
+.guides.on { opacity: 1; }
+.guides i { position: absolute; border: 1px solid rgb(255 255 255 / 0.55); mix-blend-mode: difference; }
+.guides i:nth-child(1) { inset: 3.5%; }
+.guides i:nth-child(2) { inset: 5%; border-style: dashed; border-color: rgb(255 255 255 / 0.4); }
+
+/* ---------- Loading ---------- */
+.stage-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  --ink-a: 1 0 0;
+  background: oklch(0.2 0.04 var(--h) / 0.88);
+  color: #fff;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t-2) var(--ease), visibility 0s linear var(--t-2);
+}
+.stage-busy.on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.stage-busy .ring { --size: 34px; }
+
+/* ---------- Scrubber ---------- */
+.scrub { --p: 0; position: relative; z-index: 5; margin: 2px 16px 0; cursor: pointer; touch-action: none; }
+.scrub-track { position: absolute; left: 0; right: 0; top: 7px; height: 3px; border-radius: 2px; background: oklch(var(--ink-a) / 0.09); overflow: hidden; transition: height var(--t-1) var(--ease), top var(--t-1) var(--ease); }
+.scrub-track canvas { position: absolute; inset: 0; width: 100%; height: 100%; color: oklch(var(--ink-a) / 0.2); image-rendering: pixelated; }
+.scrub-track i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--c1), var(--c2)); transform-origin: 0 50%; transform: scaleX(var(--p)); }
+.scrub:hover .scrub-track, .scrub.drag .scrub-track { height: 5px; top: 6px; }
+.scrub-knob { position: absolute; top: 2.5px; left: calc(var(--p) * 100%); width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--ink); scale: 0; transition: scale var(--t-2) var(--spring); }
+.scrub:hover .scrub-knob, .scrub.drag .scrub-knob { scale: 1; }
+.scrub-hover { position: absolute; bottom: 18px; translate: -50% 0; display: flex; align-items: center; gap: 8px; max-width: 420px; padding: 4px 11px; border-radius: var(--r-full); font-size: 12px; white-space: nowrap; background: var(--ink); color: var(--on-ink); opacity: 0; transition: opacity var(--t-1); pointer-events: none; }
+.scrub-hover em { font-style: normal; overflow: hidden; text-overflow: ellipsis; opacity: 0.82; }
+.scrub:hover .scrub-hover, .scrub.drag .scrub-hover { opacity: 1; }
+
+/* ---------- Transport ---------- */
+.transport { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; padding: 0 14px 8px 18px; }
+.transport .i { width: 18px; height: 18px; }
+.tc-read { display: flex; align-items: baseline; gap: 7px; color: var(--tx-3); font-size: 13px; white-space: nowrap; }
+.tc-read #tcNow { font-size: 18px; font-weight: 600; letter-spacing: -0.015em; color: var(--tx-1); }
+.tc-read em { font-style: normal; }
+
+.tp-keys { display: flex; align-items: center; gap: 2px; }
+.play { position: relative; width: 42px; height: 42px; margin: 0 10px; border-radius: 50%; background: radial-gradient(120% 120% at 32% 18%, color-mix(in oklab, var(--ink) 74%, white), var(--ink) 58%); box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.28), 0 2px 4px oklch(var(--ink-a) / 0.2), 0 12px 24px -8px oklch(var(--ink-a) / 0.5); color: var(--on-ink); transition: transform var(--t-2) var(--spring), color var(--t-2); }
+:root[data-theme="dark"] .play { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.6), 0 2px 4px oklch(0 0 0 / 0.3), 0 12px 28px -8px oklch(0.7 0.1 var(--h) / 0.4); }
+.play .orb { opacity: 0; scale: 0.7; transition: opacity 380ms var(--ease), scale 520ms var(--spring); }
+.play.playing .orb { opacity: 1; scale: 1; }
+.play.playing { color: #fff; }
+.play .halo { position: absolute; inset: -1px; border-radius: 50%; background: var(--orb); opacity: 0; transition: opacity 400ms var(--ease); }
+.play.playing .halo { opacity: 0.32; }
+.play .i { filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.14)); }
+.play:hover { transform: scale(1.05); }
+.play:active { transform: scale(0.95); transition-duration: 60ms; }
+.play .i { position: absolute; left: 50%; top: 50%; width: 19px; height: 19px; margin: -9.5px 0 0 -9.5px; transition: opacity var(--t-2) var(--ease), transform var(--t-3) var(--spring); }
+.p-pause { opacity: 0; transform: scale(0.5); }
+.play.playing .p-pause { opacity: 1; transform: none; }
+.play.playing .p-play { opacity: 0; transform: scale(0.5); }
+
+.tp-opts { justify-self: end; display: flex; align-items: center; gap: 2px; }
+.rate { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; height: 30px; padding: 0 7px; border-radius: var(--r-m); font-size: 13px; line-height: 1; color: var(--tx-2); transition: background var(--t-1), color var(--t-1); }
+.rate:hover { background: var(--hover); color: var(--tx-1); }
+.rate.off-default { color: var(--now-tx); font-weight: 500; }
+.vol { display: flex; align-items: center; }
+.vol .range { width: 0; opacity: 0; transition: width var(--t-3) var(--ease), opacity var(--t-2) var(--ease), margin var(--t-3) var(--ease); }
+.vol:hover .range, .vol:focus-within .range { width: 76px; margin: 0 6px 0 4px; opacity: 1; }
+#btnMute { position: relative; }
+#btnMute.muted { color: var(--tx-3); }
+#btnMute.muted::after { content: ""; position: absolute; left: 7px; top: 15.2px; width: 18px; height: 1.6px; border-radius: 1px; background: currentColor; transform: rotate(-42deg); box-shadow: 0 1.8px 0 var(--card); }
+
+@media (max-width: 1190px) {
+  .tc-read em, .tc-read #tcDur { display: none; }
+}

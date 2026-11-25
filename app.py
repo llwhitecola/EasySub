@@ -49,6 +49,7 @@ from core.subtitles import (
     merge_internal_bilingual_lines,
     merge_two_subtitles,
     parse_plain_text,
+    read_text_auto_encoding,
     split_subtitle_cue_in_two,
 )
 
@@ -66,10 +67,19 @@ UI_DIR = BUNDLE_DIR / "ui"
 SETTINGS_PATH = USER_DATA_DIR / "settings.json"
 CUSTOM_PRESETS_PATH = USER_DATA_DIR / "custom_presets.json"
 AUTOSAVE_PATH = USER_DATA_DIR / "autosave.json"
+AUTOSAVE_PREV_PATH = USER_DATA_DIR / "autosave.prev.json"
 WEBVIEW_STORAGE_DIR = USER_DATA_DIR / "webview_cache"
 WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_MEDIA_DIR = Path(tempfile.gettempdir()) / "easysub_studio_cache"
 TEMP_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+# pywebview 6 moved the dialog constants into an enum and deprecated the old names.
+if hasattr(webview, "FileDialog"):
+    DIALOG_OPEN, DIALOG_SAVE = webview.FileDialog.OPEN, webview.FileDialog.SAVE
+else:
+    DIALOG_OPEN, DIALOG_SAVE = webview.OPEN_DIALOG, webview.SAVE_DIALOG
+
+SUBTITLE_EXTS = (".srt", ".ass", ".ssa", ".vtt", ".txt", ".json")
 
 
 class AppState:
@@ -78,6 +88,9 @@ class AppState:
         self.window: webview.Window | None = None
         self.video_path: Path | None = None
         self.playable_path: Path | None = None
+        self.draft_rotated: bool = False
+        self.load_seq: int = 0  # newest load request
+        self.media: dict[str, Path] = {}  # id in the /media URL → file
         self.lock = threading.Lock()
         self.task_status: dict[str, Any] = {
             "running": False,
@@ -133,6 +146,7 @@ def load_settings() -> dict[str, Any]:
         "llm_base": "https://api.deepseek.com/v1",
         "llm_key": "",
         "llm_model": "deepseek-chat",
+        "ui": {},
     }
     if SETTINGS_PATH.exists():
         try:
@@ -141,6 +155,8 @@ def load_settings() -> dict[str, Any]:
                 defaults.update(saved)
         except Exception:
             pass
+    if not isinstance(defaults.get("ui"), dict):
+        defaults["ui"] = {}
     return defaults
 
 
@@ -178,12 +194,17 @@ def save_custom_presets_list(items: list[dict[str, Any]]) -> None:
     )
 
 
+_SETTINGS_LOCK = threading.Lock()
+
+
 def save_settings(new_settings: dict[str, Any]) -> dict[str, Any]:
-    merged = load_settings()
-    merged.update(new_settings)
-    SETTINGS_PATH.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Each bridge call runs on its own thread; read-modify-write has to be one step.
+    with _SETTINGS_LOCK:
+        merged = load_settings()
+        merged.update(new_settings)
+        SETTINGS_PATH.write_text(
+            json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     return merged
 
 
@@ -207,6 +228,17 @@ class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
 
+    # Windows resolves MIME types through the registry, where ".js" is sometimes
+    # mapped to text/plain; browsers refuse to run ES modules served that way.
+    extensions_map = {
+        **SimpleHTTPRequestHandler.extensions_map,
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".svg": "image/svg+xml",
+        ".woff2": "font/woff2",
+    }
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(UI_DIR), **kwargs)
 
@@ -229,7 +261,8 @@ class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def _serve_media_range(self, send_body: bool = True) -> None:
-        media_file = STATE.playable_path
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        media_file = STATE.media.get((query.get("id") or [""])[0]) or STATE.playable_path
         if not media_file or not media_file.exists():
             self.send_error(HTTPStatus.NOT_FOUND, "No media loaded")
             return
@@ -290,6 +323,69 @@ class LocalStudioHTTPHandler(SimpleHTTPRequestHandler):
             pass
 
 
+def system_prefers_dark() -> bool:
+    """Windows 'app mode' setting; light when it cannot be read."""
+    try:
+        import winreg
+
+        key = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+            return winreg.QueryValueEx(handle, "AppsUseLightTheme")[0] == 0
+    except Exception:
+        return False
+
+
+def resolve_theme(settings: dict[str, Any]) -> str:
+    pref = (settings.get("ui") or {}).get("theme", "auto")
+    if pref in ("light", "dark"):
+        return pref
+    return "dark" if system_prefers_dark() else "light"
+
+
+def paint_title_bar(theme: str, caption: str = "") -> bool:
+    """Tint the native title bar so it continues the app's backdrop (Windows 11)."""
+    if os.name != "nt" or not STATE.window:
+        return False
+    try:
+        import ctypes
+
+        form = getattr(STATE.window, "native", None)
+        if form is None:
+            return False
+        hwnd = ctypes.c_void_p(form.Handle.ToInt64())
+
+        def set_attr(attr: int, value: int) -> None:
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, ctypes.c_uint(attr), ctypes.byref(ctypes.c_int(value)), ctypes.c_uint(4)
+            )
+
+        dark = theme == "dark"
+        set_attr(20, 1 if dark else 0)  # DWMWA_USE_IMMERSIVE_DARK_MODE
+        m = re.fullmatch(r"#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})", caption or "")
+        if m:
+            r, g, b = (int(x, 16) for x in m.groups())
+            set_attr(35, r | (g << 8) | (b << 16))  # DWMWA_CAPTION_COLOR
+            set_attr(36, 0xF2EEEA if dark else 0x3A2620)  # DWMWA_TEXT_COLOR (BGR)
+        return True
+    except Exception:
+        return False
+
+
+def set_window_icon() -> None:
+    """Running from source, Windows would show python.exe's icon."""
+    icon_file = BUNDLE_DIR / "icon.ico"
+    if os.name != "nt" or not STATE.window or not icon_file.exists():
+        return
+    try:
+        from System import Action
+        from System.Drawing import Icon
+
+        form = STATE.window.native
+        form.BeginInvoke(Action(lambda: setattr(form, "Icon", Icon(str(icon_file)))))
+    except Exception:
+        pass
+
+
 def start_local_server() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -301,10 +397,23 @@ def start_local_server() -> int:
     return port
 
 
+def read_project_style(path: Path) -> dict[str, Any] | None:
+    """Style block saved inside an EasySub project file, if it has a usable one."""
+    try:
+        data = json.loads(read_text_auto_encoding(path))
+        style = data.get("style") if isinstance(data, dict) else None
+        if isinstance(style, dict) and isinstance(style.get("zh"), dict) and isinstance(style.get("en"), dict):
+            return style
+    except Exception:
+        pass
+    return None
+
+
 class DesktopBridgeApi:
     """Exposed to JavaScript via window.pywebview.api.*"""
 
     def get_initial_bootstrap(self) -> dict[str, Any]:
+        STATE.draft_rotated = False  # a fresh UI offers (and later rotates) the newest draft
         autosave_meta = None
         if AUTOSAVE_PATH.exists():
             try:
@@ -362,6 +471,12 @@ class DesktopBridgeApi:
                 "style": payload.get("style"),
                 "subtitles": payload.get("subtitles") or [],
             }
+            # The first save of a session moves the previous session's draft aside,
+            # so it can still be restored after new work has been saved.
+            if not STATE.draft_rotated:
+                STATE.draft_rotated = True
+                if AUTOSAVE_PATH.exists():
+                    os.replace(AUTOSAVE_PATH, AUTOSAVE_PREV_PATH)
             AUTOSAVE_PATH.write_text(
                 json.dumps(data, ensure_ascii=False), encoding="utf-8"
             )
@@ -370,10 +485,11 @@ class DesktopBridgeApi:
             return {"ok": False, "error": str(exc)}
 
     def load_autosave_draft(self) -> dict[str, Any]:
-        if not AUTOSAVE_PATH.exists():
+        draft_file = AUTOSAVE_PREV_PATH if STATE.draft_rotated else AUTOSAVE_PATH
+        if not draft_file.exists():
             return {"ok": False, "error": "未找到自动保存草稿"}
         try:
-            data = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8"))
+            data = json.loads(draft_file.read_text(encoding="utf-8"))
             return {"ok": True, "draft": data}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -474,6 +590,7 @@ class DesktopBridgeApi:
         """
         if STATE.get_task()["running"]:
             return {"ok": False, "error": "已有后台任务正在运行中，请稍候…"}
+        STATE.set_task(True, "正在扫描并精修双语字幕…", 3)
 
         def worker() -> None:
             try:
@@ -586,10 +703,14 @@ class DesktopBridgeApi:
 
         return {"ok": True, "presets": TRANSLATION_AGENT_PRESETS}
 
+    def set_window_theme(self, theme: str, caption: str = "") -> dict[str, Any]:
+        return {"ok": paint_title_bar(theme, caption)}
+
     def get_task_status(self) -> dict[str, Any]:
         return STATE.get_task()
 
-    def pick_video_file(self) -> dict[str, Any]:
+    def choose_video_file(self) -> dict[str, Any]:
+        """Only show the dialog, so the UI can display progress while the file is prepared."""
         if not STATE.window:
             return {"ok": False}
         file_types = (
@@ -597,22 +718,42 @@ class DesktopBridgeApi:
             "所有文件 (*.*)",
         )
         selected = STATE.window.create_file_dialog(
-            webview.OPEN_DIALOG, allow_multiple=False, file_types=file_types
+            DIALOG_OPEN, allow_multiple=False, file_types=file_types
         )
         if not selected:
             return {"ok": False, "cancelled": True}
-        return self.load_video_by_path(selected[0])
+        return {"ok": True, "path": str(selected[0])}
+
+    def pick_video_file(self) -> dict[str, Any]:
+        picked = self.choose_video_file()
+        return self.load_video_by_path(picked["path"]) if picked.get("ok") else picked
 
     def load_video_by_path(self, raw_path: str) -> dict[str, Any]:
         from core.media_ai import ensure_playable_video, probe_media_duration
 
         path = Path(raw_path)
-        if not path.exists():
+        if not path.is_file():
             return {"ok": False, "error": f"找不到文件: {raw_path}"}
 
-        STATE.video_path = path
-        playable = ensure_playable_video(path, TEMP_MEDIA_DIR)
-        STATE.playable_path = playable
+        # Preparing a large file takes a while; a newer request makes this one obsolete.
+        with STATE.lock:
+            STATE.load_seq += 1
+            seq = STATE.load_seq
+        try:
+            playable = ensure_playable_video(path, TEMP_MEDIA_DIR)
+        except FileNotFoundError:
+            # ffmpeg is not installed: the file itself may still play in the preview.
+            playable = path
+        except Exception as exc:
+            return {"ok": False, "error": f"打开文件失败: {exc}"}
+        with STATE.lock:
+            if seq != STATE.load_seq:
+                return {"ok": False, "superseded": True}
+            STATE.video_path = path
+            STATE.playable_path = playable
+            STATE.media[str(seq)] = playable
+            for old in [k for k in STATE.media if int(k) < seq - 2]:
+                del STATE.media[old]
         duration_sec = probe_media_duration(playable)
 
         # Look for matching same-name subtitle file automatically if present!
@@ -624,7 +765,7 @@ class DesktopBridgeApi:
                 break
 
         media_url = (
-            f"http://127.0.0.1:{STATE.server_port}/media?v={playable.stat().st_mtime_ns}"
+            f"http://127.0.0.1:{STATE.server_port}/media?id={seq}&v={playable.stat().st_mtime_ns}"
         )
         return {
             "ok": True,
@@ -665,7 +806,7 @@ class DesktopBridgeApi:
             "所有文件 (*.*)",
         )
         selected = STATE.window.create_file_dialog(
-            webview.OPEN_DIALOG, allow_multiple=False, file_types=file_types
+            DIALOG_OPEN, allow_multiple=False, file_types=file_types
         )
         if not selected:
             return {"ok": False, "cancelled": True}
@@ -710,12 +851,17 @@ class DesktopBridgeApi:
                     "matched_count": stats["matched_count"],
                     "unmatched_secondary": stats["unmatched_secondary"],
                 }
-            return {
+            result = {
                 "ok": True,
                 "file_name": path.name,
                 "subtitles": loaded,
                 "count": len(loaded),
             }
+            if path.suffix.lower() == ".json":
+                style = read_project_style(path)
+                if style:
+                    result["style"] = style
+            return result
         except Exception as exc:
             return {"ok": False, "error": f"解析字幕文件失败: {exc}"}
 
@@ -778,7 +924,8 @@ class DesktopBridgeApi:
 
         if workflow_type in ("asr_and_translate", "asr_only"):
             if not STATE.video_path or not STATE.video_path.exists():
-                return {"ok": False, "error": "配置已自动保存！如需语音听写请先打开一个音视频文件，或切换上方为「仅把现有单语翻译成双语」。"}
+                return {"ok": False, "error": "配置已自动保存！如需语音听写请先打开一个音视频文件，或切换上方为「只翻译」。"}
+        STATE.set_task(True, "正在启动 AI 双语助手…", 3)
 
         def worker() -> None:
             try:
@@ -892,7 +1039,7 @@ class DesktopBridgeApi:
             suggested = f"{stem}.ebsub.json"
 
         save_target = STATE.window.create_file_dialog(
-            webview.SAVE_DIALOG,
+            DIALOG_SAVE,
             directory=default_dir,
             save_filename=suggested,
             file_types=ftypes,
@@ -950,7 +1097,7 @@ class DesktopBridgeApi:
         suggested = f"{stem}.{suffix_label}.{resolution}.sup"
 
         save_target = STATE.window.create_file_dialog(
-            webview.SAVE_DIALOG,
+            DIALOG_SAVE,
             directory=default_dir,
             save_filename=suggested,
             file_types=("蓝光原盘图形字幕 (*.sup)", "所有文件 (*.*)"),
@@ -961,6 +1108,7 @@ class DesktopBridgeApi:
         out_path = Path(save_target if isinstance(save_target, str) else save_target[0])
         if out_path.suffix.lower() != ".sup":
             out_path = Path(str(out_path) + ".sup")
+        STATE.set_task(True, "正在启动蓝光 PGS (.sup) 图形字幕压制引擎…", 2)
 
         def worker() -> None:
             try:
@@ -1002,7 +1150,7 @@ class DesktopBridgeApi:
             return {"ok": False, "error": "后台已有任务正在运行中，请稍候…"}
 
         selected = STATE.window.create_file_dialog(
-            webview.OPEN_DIALOG,
+            DIALOG_OPEN,
             allow_multiple=True,
             file_types=("ASS 特效字幕 (*.ass;*.ssa)", "所有文件 (*.*)"),
         )
@@ -1016,7 +1164,7 @@ class DesktopBridgeApi:
         if len(ass_files) == 1:
             src = ass_files[0]
             save_target = STATE.window.create_file_dialog(
-                webview.SAVE_DIALOG,
+                DIALOG_SAVE,
                 directory=str(src.parent),
                 save_filename=f"{src.stem}.sup",
                 file_types=("蓝光原盘图形字幕 (*.sup)", "所有文件 (*.*)"),
@@ -1028,6 +1176,7 @@ class DesktopBridgeApi:
             )
             if single_out_path.suffix.lower() != ".sup":
                 single_out_path = Path(str(single_out_path) + ".sup")
+        STATE.set_task(True, "正在读取 ASS 文件…", 2)
 
         def worker() -> None:
             try:
@@ -1082,18 +1231,14 @@ def bind_drag_and_drop(window: webview.Window, api: DesktopBridgeApi) -> None:
 
         def on_drop(e: dict[str, Any]) -> None:
             files = e.get("dataTransfer", {}).get("files", [])
-            if not files:
-                return
-            first = files[0]
-            full_path = first.get("pywebviewFullPath") or first.get("path")
-            if not full_path:
-                return
-            ext = Path(full_path).suffix.lower()
-            escaped = json.dumps(full_path)
-            if ext in (".srt", ".ass", ".ssa", ".vtt", ".txt", ".json"):
-                window.evaluate_js(f"window.onNativeFileDropped('subtitle', {escaped})")
-            else:
-                window.evaluate_js(f"window.onNativeFileDropped('video', {escaped})")
+            paths = [f.get("pywebviewFullPath") or f.get("path") for f in files]
+            paths = [p for p in paths if p]
+            # First media file, then first subtitle: the UI queues them in that order.
+            media = next((p for p in paths if Path(p).suffix.lower() not in SUBTITLE_EXTS), None)
+            subtitle = next((p for p in paths if Path(p).suffix.lower() in SUBTITLE_EXTS), None)
+            for kind, full_path in (("video", media), ("subtitle", subtitle)):
+                if full_path:
+                    window.evaluate_js(f"window.onNativeFileDropped('{kind}', {json.dumps(full_path)})")
 
         window.dom.document.events.dragover += DOMEventHandler(
             lambda e: None, prevent_default=True
@@ -1122,18 +1267,25 @@ def main() -> None:
     port = start_local_server()
     STATE.server_port = port
     api = DesktopBridgeApi()
+    theme = resolve_theme(load_settings())
 
     window = webview.create_window(
         title="EasySub Studio · 傻瓜双语字幕工坊",
-        url=f"http://127.0.0.1:{port}/index.html",
+        url=f"http://127.0.0.1:{port}/index.html?theme={theme}",
         js_api=api,
         width=1440,
         height=900,
         min_size=(1120, 720),
-        background_color="#0B0F19",
+        background_color="#131A2B" if theme == "dark" else "#E8EEFB",
         text_select=True,
     )
     STATE.window = window
+
+    def on_shown(*_: Any) -> None:
+        set_window_icon()
+        paint_title_bar(theme, "#131A2B" if theme == "dark" else "#DFE6F8")
+
+    window.events.shown += on_shown
     webview.start(
         func=lambda: bind_drag_and_drop(window, api),
         debug=False,
@@ -1143,4 +1295,12 @@ def main() -> None:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            # Own taskbar identity instead of being grouped under python.exe
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EasySub.Studio")
+        except Exception:
+            pass
     main()

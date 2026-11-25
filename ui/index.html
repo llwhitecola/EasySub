@@ -1,713 +1,411 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EasySub Studio · 傻瓜双语字幕工坊</title>
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="polish.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect width='26' height='26' rx='7' fill='%23161615'/%3E%3Crect x='5' y='10' width='16' height='2.6' rx='1.3' fill='%23fff'/%3E%3Crect x='8' y='15.4' width='10' height='2.6' rx='1.3' fill='%23fff' opacity='.5'/%3E%3C/svg%3E" />
+  <script>
+    /* Pick the theme before first paint: ?theme= comes from the desktop shell. */
+    (function () {
+      var t = new URLSearchParams(location.search).get("theme");
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <link rel="stylesheet" href="css/stage.css" />
+  <link rel="stylesheet" href="css/dock.css" />
+  <link rel="stylesheet" href="css/reel.css" />
+  <link rel="stylesheet" href="css/layers.css" />
 </head>
 <body>
-  <!-- Sleek Studio Header -->
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-logo">
-        <span class="logo-mark">ES</span>
-      </div>
-      <div class="brand-meta">
-        <div class="brand-title">
-          傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.6</span>
-        </div>
-        <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
-          <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
-        </div>
-      </div>
-    </div>
+  <!-- Icon sprite · 24 grid, 1.65 stroke -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-film" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M8 4.5v15M16 4.5v15M3.5 9.5H8M3.5 14.5H8M16 9.5h4.5M16 14.5h4.5"/></symbol>
+      <symbol id="i-import" viewBox="0 0 24 24"><path d="M4 7h9M4 12h6M4 17h9"/><path d="M20.5 12H13m0 0 3.2-3.2M13 12l3.2 3.2"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M11 4.5c.7 4 2.5 5.8 6.5 6.5-4 .7-5.8 2.5-6.5 6.5-.7-4-2.5-5.8-6.5-6.5 4-.7 5.8-2.5 6.5-6.5Z"/><path d="M18.5 15.5c.3 1.7 1.1 2.5 2.8 2.8-1.7.3-2.5 1.1-2.8 2.8-.3-1.7-1.1-2.5-2.8-2.8 1.7-.3 2.5-1.1 2.8-2.8Z"/></symbol>
+      <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4"/><path d="M12 6.5a5.5 5.5 0 0 1 5.5 5.5"/></symbol>
+      <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4.5m0 0L8 8.5m4-4 4 4"/><path d="M4.5 14v4a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8 5 4 9l4 4"/><path d="M4 9h10a5.5 5.5 0 0 1 0 11h-3"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><path d="m16 5 4 4-4 4"/><path d="M20 9H10a5.5 5.5 0 0 0 0 11h3"/></symbol>
+      <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.3v13.4a.8.8 0 0 0 1.2.7l10.6-6.7a.8.8 0 0 0 0-1.4L9.2 4.6A.8.8 0 0 0 8 5.3Z"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18 6.5v11L9.5 12 18 6.5Z"/><path d="M6.5 6v12"/></symbol>
+      <symbol id="i-next" viewBox="0 0 24 24"><path d="M6 6.5v11l8.5-5.5L6 6.5Z"/><path d="M17.5 6v12"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M6 8.5A7.5 7.5 0 1 1 4.5 13"/><path d="M5.5 4.5v4.2h4.2"/><path d="M10.3 11.2c.2-1 .9-1.5 1.8-1.5 1 0 1.7.6 1.7 1.5 0 1.5-3.5 2.2-3.6 4.3h3.8" stroke-width="1.5"/></symbol>
+      <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M18 8.5A7.5 7.5 0 1 0 19.5 13"/><path d="M18.5 4.5v4.2h-4.2"/><path d="M10.3 11.2c.2-1 .9-1.5 1.8-1.5 1 0 1.7.6 1.7 1.5 0 1.5-3.5 2.2-3.6 4.3h3.8" stroke-width="1.5"/></symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24"><path d="M5 5v14"/><path d="M9.5 6.5v11l9-5.5-9-5.5Z"/></symbol>
+      <symbol id="i-loop" viewBox="0 0 24 24"><path d="M17 3.5 20 6.5l-3 3"/><path d="M20 6.5H8.5A4.5 4.5 0 0 0 4 11v1"/><path d="m7 20.5-3-3 3-3"/><path d="M4 17.5h11.5A4.5 4.5 0 0 0 20 13v-1"/></symbol>
+      <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4.5 9.5v5h3.2l4.3 3.5V6L7.7 9.5H4.5Z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11"/><path class="mute" d="m15.5 9.5 5 5m0-5-5 5"/></symbol>
+      <symbol id="i-guides" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"/><rect x="6.5" y="8.2" width="11" height="7.6" rx=".5" stroke-dasharray="2 2"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6"/><path d="m15.3 15.3 4.7 4.7"/></symbol>
+      <symbol id="i-replace" viewBox="0 0 24 24"><path d="M4 7.5h10.5M11.5 4.5l3 3-3 3"/><path d="M20 16.5H9.5M12.5 13.5l-3 3 3 3"/></symbol>
+      <symbol id="i-tidy" viewBox="0 0 24 24"><path d="M4.5 6h15M4.5 11h9M4.5 16h6"/><path d="m14 17.5 2.3 2.3 4.2-5"/></symbol>
+      <symbol id="i-punct" viewBox="0 0 24 24"><path d="M9.5 6.5v7"/><circle cx="9.5" cy="17.5" r=".6" fill="currentColor"/><path d="M15 15.5c.9 0 1.5.6 1.5 1.4 0 1.2-.8 2.2-2 2.6"/></symbol>
+      <symbol id="i-pair" viewBox="0 0 24 24"><path d="M4 6.5h7M4 17.5h7"/><path d="M11 6.5c4 0 2.5 5.5 6 5.5M11 17.5c4 0 2.5-5.5 6-5.5h3"/></symbol>
+      <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7.5 4.5 4 8l3.5 3.5M4 8h12M16.5 12.5 20 16l-3.5 3.5M20 16H8"/></symbol>
+      <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4.5 7h13M4.5 12h9M4.5 17h5"/><path d="M18 11v8m0 0 2.5-2.5M18 19l-2.5-2.5"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.8 11.3a1.3 1.3 0 0 0 1.3 1.2h6.8a1.3 1.3 0 0 0 1.3-1.2L17.5 7"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-split" viewBox="0 0 24 24"><circle cx="6.2" cy="6.7" r="2.4"/><circle cx="6.2" cy="17.3" r="2.4"/><path d="M20 5.5 8.2 15.8M8.2 8.2 20 18.5"/></symbol>
+      <symbol id="i-translate" viewBox="0 0 24 24"><path d="M3.5 6.5h9M8 4.5v2M10.5 6.5c-.8 3.5-3.2 6.2-6.5 7.5M5.5 9.5c1.2 2.3 3 3.8 5.3 4.5"/><path d="m11.5 19.5 4.3-9.5 4.3 9.5M13 16.5h5.6"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M5 4.5h14M12 20V8.5m0 0L7.5 13M12 8.5l4.5 4.5"/></symbol>
+      <symbol id="i-merge" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 3.5v5m0 0L9.8 6.3M12 8.5l2.2-2.2M12 20.5v-5m0 0-2.2 2.2m2.2-2.2 2.2 2.2"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11m0-11-11 11"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.8 4.8L19.5 7"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5 20.5 19h-17L12 4.5Z"/><path d="M12 10.5v4M12 16.8v.1"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11.5v4.3M12 8.3v.1"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 4.5 2.3 4.8 5.2.7-3.8 3.7.9 5.3-4.6-2.5L7.4 19l.9-5.3L4.5 10l5.2-.7L12 4.5Z"/></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M5 5v4.5h4.5"/><path d="M5.5 9.5A7.5 7.5 0 1 1 4.7 14"/></symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24"><path d="M3.5 6v12M20.5 6v12M6.5 12h11M6.5 12l3-3M6.5 12l3 3M17.5 12l-3-3M17.5 12l-3 3"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><path d="M8 5.5H5v13h3M16 5.5h3v13h-3"/><path d="M9.5 12h5"/></symbol>
+      <symbol id="i-follow" viewBox="0 0 24 24"><path d="M9 4v16"/><path d="m6.5 4 2.5 3 2.5-3"/><path d="M13.5 12h7m0 0-3-3m3 3-3 3"/></symbol>
+      <symbol id="i-bold" viewBox="0 0 24 24"><path d="M8 5.5h5a3.2 3.2 0 0 1 0 6.4H8V5.5ZM8 11.9h5.8a3.3 3.3 0 0 1 0 6.6H8v-6.6Z" stroke-width="2"/></symbol>
+      <symbol id="i-italic" viewBox="0 0 24 24"><path d="M10.5 5.5h6M7.5 18.5h6M14 5.5l-4 13" stroke-width="1.9"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.5 4h7.5l4 4v11a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M14 4v4h4M8.5 13h7M9.5 16.5h5"/></symbol>
+      <symbol id="i-paste" viewBox="0 0 24 24"><rect x="5.5" y="5.5" width="13" height="15" rx="1.5"/><path d="M9 5.5V4h6v1.5M9 11h6M9 15h4"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5 12 4Z"/><path d="M3.5 13 12 17.5 20.5 13"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M3 12c2.5-4.3 5.5-6.5 9-6.5s6.5 2.2 9 6.5c-2.5 4.3-5.5 6.5-9 6.5S5.5 16.3 3 12Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+      <symbol id="i-keys" viewBox="0 0 24 24"><rect x="3" y="6.5" width="18" height="11.5" rx="2"/><path d="M6.5 10h.1M10 10h.1M13.5 10h.1M17.2 10h.1M8 14.5h8"/></symbol>
+      <symbol id="i-disk" viewBox="0 0 24 24"><path d="M5 4.5h11l3.5 3.5v11a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5Z"/><path d="M8 4.5v4.5h7V4.5M8 19.5V14h8v5.5"/></symbol>
+      <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--c1)"/><stop offset=".55" style="stop-color:var(--c2)"/><stop offset="1" style="stop-color:var(--c3)"/></linearGradient>
+    </defs>
+  </svg>
 
-    <!-- Center Segmented Action Dock -->
-    <nav class="nav-dock">
-      <button class="dock-btn" id="btnOpenVideo" title="支持 MP4, MKV, MOV, AVI, MP3, WAV 等，也可直接拖拽进窗口">
-        <span class="dock-icon">🎬</span>
-        <span>打开视频</span>
+  <canvas class="aura" id="aura" aria-hidden="true"></canvas>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div id="app">
+    <!-- ================= Header ================= -->
+    <header class="bar">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect class="mark-bg" width="26" height="26" rx="7.5"/><rect class="mark-a" x="5" y="10" width="16" height="2.6" rx="1.3"/><rect class="mark-b" x="8" y="15.4" width="10" height="2.6" rx="1.3"/></svg>
+        <b>EasySub</b>
+      </div>
+
+      <button class="media-chip" id="mediaChip" type="button" data-tip="打开或更换视频" data-keys="Ctrl O">
+        <i class="media-dot"></i>
+        <span class="media-name" id="mediaName">未载入影片</span>
+        <span class="media-meta num" id="mediaMeta">演示画面</span>
       </button>
-      <button class="dock-btn" id="btnOpenImport" title="打开单/双语字幕、合并两份单语字幕或粘贴纯文本台词">
-        <span class="dock-icon">📂</span>
-        <span>导入 / 合轴</span>
-      </button>
-      <button class="dock-btn dock-btn-ai" id="btnOpenAi" title="AI 自动听写视频语音 + 免配置极速双语翻译">
-        <span class="dock-icon">✨</span>
-        <span>AI 听写翻译</span>
-      </button>
-      <button class="dock-btn" id="btnOpenSupTool" title="将本地 ASS 文件（可多选批量）或当前字幕压制为蓝光原盘 PGS (.sup) 图形字幕">
-        <span class="dock-icon">💿</span>
-        <span>ASS 转 SUP</span>
-      </button>
-    </nav>
 
-    <!-- Right History & Primary Export CTA -->
-    <div class="topbar-right">
-      <div class="history-pill">
-        <button class="icon-action" id="btnUndo" title="撤销上一步 (Ctrl+Z)">↩ 撤销</button>
-        <span class="pill-sep"></span>
-        <button class="icon-action" id="btnRedo" title="重做 (Ctrl+Y)">↪ 重做</button>
+      <nav class="bar-nav" aria-label="主要功能">
+        <button type="button" id="btnOpenVideo" data-tip="MP4、MKV、MOV、AVI、MP3、WAV 等，也可以直接拖进窗口" data-keys="Ctrl O"><svg class="i"><use href="#i-film"/></svg><span>打开视频</span></button>
+        <button type="button" id="btnOpenImport" data-tip="打开字幕、合并两份单语字幕，或粘贴台词" data-keys="Ctrl I"><svg class="i"><use href="#i-import"/></svg><span>导入 / 合轴</span></button>
+        <button type="button" id="btnOpenAi" data-tip="自动听写视频语音，并翻译成双语"><svg class="i"><use href="#i-spark"/></svg><span>AI 听写翻译</span></button>
+        <button type="button" id="btnOpenSup" data-tip="把 ASS 压制成蓝光 PGS 图形字幕，支持批量"><svg class="i"><use href="#i-disc"/></svg><span>ASS 转 SUP</span></button>
+      </nav>
+
+      <div class="bar-end">
+        <button class="task-pill" id="taskPill" type="button" hidden data-tip="查看进度"><i class="ring"></i><span class="shimmer"></span><b class="num"></b></button>
+        <span class="task-pill result-pill" id="resultPill" hidden><button id="btnResult" type="button" data-tip="任务期间字幕有改动，点开决定是否替换"><i class="orb-dot"><i class="orb"></i></i>结果待应用</button><button class="x" id="btnResultDrop" type="button" aria-label="丢弃结果" data-tip="丢弃这次处理结果"><svg class="i"><use href="#i-close"/></svg></button></span>
+        <button class="k-pill" id="btnPalette" type="button" data-tip="搜索功能、跳到某句或某个时间"><svg class="i"><use href="#i-search"/></svg><span>搜索</span><kbd>Ctrl K</kbd></button>
+        <div class="bar-group">
+          <button class="icon-btn" id="btnUndo" type="button" aria-label="撤销" data-tip="撤销" data-keys="Ctrl Z"><svg class="i"><use href="#i-undo"/></svg></button>
+          <button class="icon-btn" id="btnRedo" type="button" aria-label="重做" data-tip="重做" data-keys="Ctrl Y"><svg class="i"><use href="#i-redo"/></svg></button>
+          <div class="menu-wrap">
+            <button class="icon-btn" id="btnTheme" type="button" data-menu="menuLook" aria-haspopup="true" aria-expanded="false" aria-label="外观" data-tip="外观与氛围"><svg class="i"><use href="#i-theme"/></svg></button>
+            <div class="menu menu-look" id="menuLook">
+              <h5>外观</h5>
+              <div class="seg seg-fill" id="themeSeg" role="radiogroup" aria-label="外观"><button type="button" role="radio" data-value="light">浅色</button><button type="button" role="radio" data-value="dark">深色</button><button type="button" role="radio" data-value="auto">跟随系统</button></div>
+              <h5>氛围</h5>
+              <div class="moods" id="moodList" role="radiogroup" aria-label="氛围">
+                <button type="button" role="radio" aria-checked="true" data-mood="mist"><i class="mood-mist"></i>雾蓝</button>
+                <button type="button" role="radio" aria-checked="false" data-mood="salt"><i class="mood-salt"></i>海盐</button>
+                <button type="button" role="radio" aria-checked="false" data-mood="heather"><i class="mood-heather"></i>石楠</button>
+                <button type="button" role="radio" aria-checked="false" data-mood="moss"><i class="mood-moss"></i>青苔</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-export" id="btnOpenExport" type="button" data-tip="导出 ASS、SUP、SRT 或工程文件" data-keys="Ctrl S"><span class="ex-a"><svg class="i"><use href="#i-export"/></svg>导出字幕</span><span class="ex-b"><svg class="i"><use href="#i-check"/></svg>已导出</span></button>
       </div>
+    </header>
 
-      <button class="btn btn-export-cta" id="btnOpenExport">
-        <span>💾 导出字幕</span>
-        <span class="export-formats-hint">ASS · SUP · SRT</span>
-      </button>
-    </div>
-  </header>
+    <!-- ================= Studio ================= -->
+    <main class="studio" id="studio">
+      <div class="upper">
+        <!-- Screen -->
+        <section class="screen card" aria-label="画面预览">
+          <div class="screen-room">
+            <div class="stage-fit">
+              <div class="stage" id="stage" data-tone="dark">
+                <canvas class="scene" id="scene" aria-hidden="true"></canvas>
+                <video id="video" playsinline preload="auto"></video>
 
-  <!-- Main Studio Workspace -->
-  <main class="workspace" id="workspaceEl">
-    <!-- Upper Deck: 16:9 Cinema Stage (Left) + Visual Style Studio (Right) -->
-    <section class="upper-deck" id="upperDeck">
-      <!-- Left: 16:9 WYSIWYG Cinema Stage -->
-      <div class="player-panel">
-        <div class="video-stage-wrap" id="videoStageWrap">
-          <div class="video-stage" id="videoStage">
-            <video id="videoEl" playsinline preload="auto"></video>
+                <button class="stage-hero" id="stageHero" type="button" aria-label="选择视频或音频文件">
+                  <strong id="heroZh"></strong>
+                  <em id="heroEn"></em>
+                  <span class="hero-cta"><svg class="i"><use href="#i-plus"/></svg>拖入视频或字幕，或点这里选择</span>
+                </button>
 
-            <!-- Interactive Demo Backdrop (with Scene Brightness Tester!) -->
-            <div class="demo-backdrop scene-dark" id="demoBackdrop">
-              <div class="scene-switcher" title="在未导入视频时，切换不同明暗背景测试字幕描边与清晰度">
-                <button class="scene-chip active" data-scene="scene-dark">🌙 暗调影院</button>
-                <button class="scene-chip" data-scene="scene-warm">🌆 暖色街景</button>
-                <button class="scene-chip" data-scene="scene-bright">☀️ 亮白雪景</button>
-              </div>
+                <div class="guides" id="guides" aria-hidden="true"><i></i><i></i></div>
+                <canvas class="sub-canvas" id="subCanvas" role="img" aria-label=""></canvas>
+                <div class="sub-frame" id="subFrame" hidden data-tip="上下拖动调整高度，双击修改文字"><b class="num"></b></div>
 
-              <div class="drop-hero-card" id="dropHeroCard">
-                <div class="drop-hero-icon">🎞️</div>
-                <div class="drop-hero-title">拖入视频或字幕文件开始制作</div>
-                <div class="drop-hero-sub">支持 MP4 / MKV / MOV / SRT / ASS · 点击此处也可选择视频</div>
-              </div>
-            </div>
-
-            <!-- 1:1 Scaled Top Screen Annotation Overlay (注释-雅黑 / \an8) -->
-            <div class="subtitle-overlay-top" id="subtitleOverlayTop">
-              <div class="sub-line" id="subLineTopNote"></div>
-            </div>
-
-            <!-- 1:1 Scaled ASS WYSIWYG Subtitle Overlay -->
-            <div class="subtitle-overlay" id="subtitleOverlay">
-              <div class="sub-box-wrap" id="subBoxWrap">
-                <div class="sub-line" id="subLineTop"></div>
-                <div class="sub-line" id="subLineBottom"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Cinema Transport Bar -->
-        <div class="player-controls">
-          <div class="transport-left">
-            <button class="btn btn-play-main" id="btnPlayPause" title="播放 / 暂停 (快捷键 F2 或空格)">▶ 播放</button>
-            <div class=" transport-Cluster">
-              <button class="btn btn-ghost btn-xs-pad" id="btnBack2s" title="快退 2 秒">-2s</button>
-              <button class="btn btn-ghost btn-xs-pad" id="btnFwd2s" title="快进 2 秒">+2s</button>
-              <button class="btn btn-ghost btn-xs-pad" id="btnReplayCue" title="从当前选中句开头重播 (F5)">🎯 播本句</button>
-            </div>
-            <label class="switch-label" title="循环播放当前选中的这一句，方便精听校对">
-              <input type="checkbox" class="ui-switch" id="chkLoopCue" />
-              <span>单句循环</span>
-            </label>
-          </div>
-
-          <div class="transport-right">
-            <div class="time-readout">
-              <span id="curTimeLabel" class="t-cur">00:00.00</span>
-              <span class="time-sep">/</span>
-              <span id="durTimeLabel" class="t-dur">00:18.00</span>
-            </div>
-            <select id="selPlaybackRate" class="select-compact" title="播放倍速">
-              <option value="0.75">0.75x 慢速</option>
-              <option value="1" selected>1.0x 原速</option>
-              <option value="1.25">1.25x 稍快</option>
-              <option value="1.5">1.5x 审片</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: Visual Style Studio -->
-      <aside class="style-panel">
-        <div class="panel-tabs">
-          <button class="tab-btn active" data-tab="presets">🎨 一键双语模板</button>
-          <button class="tab-btn" data-tab="custom">🛠️ 字体颜色精调</button>
-        </div>
-
-        <!-- Tab 1: Curated Presets + Quick Layout -->
-        <div class="tab-body active" id="tab-presets">
-          <div class="preset-grid" id="presetGrid"></div>
-
-          <div class="quick-layout-box">
-            <div class="quick-row">
-              <span class="q-label">双语上下位置</span>
-              <div class="seg-control" id="orderSeg">
-                <button class="seg-btn active" data-order="zh_top">上中下英</button>
-                <button class="seg-btn" data-order="en_top">上英下中</button>
-              </div>
-            </div>
-
-            <div class="quick-row">
-              <span class="q-label">画面显示模式</span>
-              <div class="seg-control" id="langModeSeg">
-                <button class="seg-btn active" data-mode="bilingual">中英双语</button>
-                <button class="seg-btn" data-mode="zh_only">仅中文</button>
-                <button class="seg-btn" data-mode="en_only">仅英文</button>
-              </div>
-            </div>
-
-            <div class="quick-row">
-              <span class="q-label">黑底衬条</span>
-              <label class="switch-label">
-                <input type="checkbox" class="ui-switch" id="chkBoxMode" />
-                <span>半透明暗黑衬底</span>
-              </label>
-            </div>
-
-            <div class="quick-sliders-3">
-              <label class="mini-slider-field" title="调节双语字幕整体距离画面底部的高度">
-                <div class="ms-head"><span>底部高度</span><b id="lblMarginV">15</b></div>
-                <input type="range" id="rngMarginV" min="5" max="180" value="15" class="slider" />
-              </label>
-              <label class="mini-slider-field" title="调节中英文字幕上下的垂直间隙（负值贴得更紧，正值拉得更开）">
-                <div class="ms-head"><span>中英间距</span><b id="lblLineGap">4</b></div>
-                <input type="range" id="rngLineGap" min="-8" max="28" step="1" value="4" class="slider" />
-              </label>
-              <label class="mini-slider-field" title="调节字幕描边的柔和羽化程度（\blur）">
-                <div class="ms-head"><span>柔边羽化</span><b id="lblBlur">2</b></div>
-                <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
-              </label>
-            </div>
-
-            <div class="save-preset-bar">
-              <input type="text" id="inpCustomPresetName" class="input-sm" placeholder="给当前精调配色起个名字…" />
-              <button class="btn btn-step btn-sm" id="btnSaveCustomPreset" title="把右侧微调好的字体、颜色与字宽永久收藏为新模板卡片">⭐ 存为我的模板</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tab 2: Detailed ZH & EN Font/Size/Color/Stroke Controls (Zero-Scroll Sub-Tabs) -->
-        <div class="tab-body" id="tab-custom">
-          <div class="lang-sub-tabs" id="customLangTabs">
-            <button class="lang-sub-btn active" data-langcard="zh">🇨🇳 中文字幕精调</button>
-            <button class="lang-sub-btn" data-langcard="en">🇬🇧 英文字幕精调</button>
-          </div>
-
-          <div class="style-lang-card" id="cardLangZh">
-            <div class="lang-card-header">
-              <span>中文字形与色彩</span>
-              <div class="inline-checks">
-                <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhBold" checked /><span>粗体</span></label>
-                <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhItalic" /><span>斜体</span></label>
-              </div>
-            </div>
-            <div class="form-grid-2">
-              <label class="span-2">字体家族
-                <select id="zhFont" class="input-sm">
-                  <option value="WenQuanYi Micro Hei" selected>文泉驿微米黑 (美剧默认)</option>
-                  <option value="Microsoft YaHei">微软雅黑 (清晰百搭)</option>
-                  <option value="ZhunYuan">准圆 (ZhunYuan)</option>
-                  <option value="Source Han Sans CN">思源黑体 (Source Han Sans)</option>
-                  <option value="SimHei">黑体 (SimHei)</option>
-                  <option value="SimSun">宋体 (文艺电影感)</option>
-                  <option value="KaiTi">楷体 (温润纪录片)</option>
-                  <option value="DengXian">等线 (现代极简)</option>
-                </select>
-              </label>
-              <label>
-                <div class="ms-head"><span>字号大小</span><b id="lblZhSize">70</b></div>
-                <input type="range" id="zhSize" min="26" max="96" value="70" class="slider" />
-              </label>
-              <label>
-                <div class="ms-head"><span>横向字宽</span><b><span id="lblZhScaleX">93</span>%</b></div>
-                <input type="range" id="zhScaleX" min="75" max="115" step="1" value="93" class="slider" />
-              </label>
-              <label>文字颜色
-                <div class="color-pick-wrap">
-                  <input type="color" id="zhColor" value="#B7B7B7" />
-                  <span id="lblZhColor">#B7B7B7</span>
+                <div class="scene-switch" id="sceneSwitch" role="radiogroup" aria-label="预览背景明暗">
+                  <button class="sw-dark" type="button" role="radio" aria-checked="true" aria-label="暗背景" data-scene="dark" data-tip="暗背景：检查暗画面上的效果"></button>
+                  <button class="sw-mid" type="button" role="radio" aria-checked="false" aria-label="中间调背景" data-scene="mid" data-tip="中间调：检查日光画面上的效果"></button>
+                  <button class="sw-light" type="button" role="radio" aria-checked="false" aria-label="亮背景" data-scene="light" data-tip="亮背景：检查亮白画面上的描边"></button>
                 </div>
-              </label>
-              <label>描边颜色
-                <div class="color-pick-wrap">
-                  <input type="color" id="zhOutlineColor" value="#000000" />
-                  <span id="lblZhOutlineColor">#000000</span>
+                <div class="stage-tools">
+                  <button class="icon-btn" id="btnGuides" type="button" aria-pressed="false" aria-label="安全框" data-tip="安全框：动作安全区与字幕安全区"><svg class="i"><use href="#i-guides"/></svg></button>
+                  <button class="icon-btn" id="btnFullStage" type="button" aria-pressed="false" aria-label="专注画面" data-tip="专注画面：只显示视频" data-keys="T"><svg class="i"><use href="#i-expand"/></svg></button>
                 </div>
-              </label>
-              <label>
-                <div class="ms-head"><span>描边粗细</span><b id="lblZhOutline">0.8</b></div>
-                <input type="range" id="zhOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
-              </label>
-              <label>
-                <div class="ms-head"><span>阴影深度</span><b id="lblZhShadow">0.7</b></div>
-                <input type="range" id="zhShadow" min="0" max="6" step="0.1" value="0.7" class="slider" />
-              </label>
-            </div>
-          </div>
 
-          <div class="style-lang-card hidden" id="cardLangEn">
-            <div class="lang-card-header">
-              <span>英文字形与色彩</span>
-              <div class="inline-checks">
-                <label class="switch-label"><input type="checkbox" class="ui-switch" id="enBold" checked /><span>粗体</span></label>
-                <label class="switch-label"><input type="checkbox" class="ui-switch" id="enItalic" /><span>斜体</span></label>
+                <div class="stage-busy" id="stageBusy"><div id="stageDial"></div><span></span></div>
               </div>
             </div>
-            <div class="form-grid-2">
-              <label class="span-2">字体家族
-                <select id="enFont" class="input-sm">
-                  <option value="ITCAvantGardePro-Demi" selected>ITCAvantGardePro-Demi (美剧默认)</option>
-                  <option value="Cronos Pro">Cronos Pro (天空英语)</option>
-                  <option value="Avenir Next W1G">Avenir Next W1G</option>
-                  <option value="Segoe UI">Segoe UI (现代无衬线)</option>
-                  <option value="Arial">Arial (经典百搭)</option>
-                  <option value="Georgia">Georgia (优雅衬线)</option>
-                  <option value="Trebuchet MS">Trebuchet MS</option>
-                  <option value="WenQuanYi Micro Hei">文泉驿微米黑</option>
-                </select>
+          </div>
+
+          <div class="scrub" id="scrub" aria-hidden="true"><div class="scrub-track"><canvas id="cueMap" height="1"></canvas><i></i></div><b class="scrub-knob"></b><span class="scrub-hover num"></span></div>
+
+          <div class="transport">
+            <div class="tc-read num"><span id="tcNow">00:00.00</span><em>/</em><span id="tcDur">00:00.00</span></div>
+            <div class="tp-keys">
+              <button class="icon-btn" id="btnPrevCue" type="button" aria-label="上一句" data-tip="上一句" data-keys="PgUp"><svg class="i"><use href="#i-prev"/></svg></button>
+              <button class="icon-btn" id="btnBack" type="button" aria-label="后退 2 秒" data-tip="后退 2 秒"><svg class="i"><use href="#i-back"/></svg></button>
+              <button class="play" id="btnPlay" type="button" aria-label="播放" data-tip="播放" data-keys="F2 空格"><i class="halo" id="playHalo"></i><i class="orb"></i><svg class="i i-fill p-play"><use href="#i-play"/></svg><svg class="i i-fill p-pause"><use href="#i-pause"/></svg></button>
+              <button class="icon-btn" id="btnFwd" type="button" aria-label="前进 2 秒" data-tip="前进 2 秒"><svg class="i"><use href="#i-fwd"/></svg></button>
+              <button class="icon-btn" id="btnNextCue" type="button" aria-label="下一句" data-tip="下一句" data-keys="PgDn"><svg class="i"><use href="#i-next"/></svg></button>
+            </div>
+            <div class="tp-opts">
+              <button class="icon-btn" id="btnReplay" type="button" aria-label="播放本句" data-tip="从头播放选中的这一句" data-keys="F5"><svg class="i"><use href="#i-replay"/></svg></button>
+              <button class="icon-btn" id="btnLoop" type="button" aria-pressed="false" aria-label="单句循环" data-tip="单句循环：反复播放选中的这一句"><svg class="i"><use href="#i-loop"/></svg></button>
+              <button class="rate num" id="btnRate" type="button" data-tip="播放倍速：点击切换，右键恢复 1×">1×</button>
+              <div class="vol">
+                <button class="icon-btn" id="btnMute" type="button" aria-label="静音" data-tip="静音"><svg class="i"><use href="#i-vol"/></svg></button>
+                <input class="range" id="rngVolume" type="range" min="0" max="100" value="100" aria-label="音量" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="split split-v" id="splitV" role="separator" aria-orientation="vertical" aria-label="调整画面与台词宽度" tabindex="0" data-tip="拖动调整宽度，双击复位"></div>
+
+        <!-- Dock -->
+        <aside class="dock card" id="dock">
+          <div class="dock-head">
+            <div class="dock-tabs seg" id="dockTabs" role="tablist">
+              <button type="button" role="tab" aria-selected="true" data-value="script">台词<sup class="num" id="tabScriptCount"></sup></button>
+              <button type="button" role="tab" aria-selected="false" data-value="style">模板样式</button>
+            </div>
+            <button class="meter" id="bilingualMeter" type="button" data-tip=""><span>双语</span><i></i><b class="num">0%</b></button>
+          </div>
+
+          <!-- 台词 -->
+          <div class="pane pane-script" data-tabpane="script">
+            <div class="script-tools">
+              <label class="search" id="searchBox">
+                <svg class="i"><use href="#i-search"/></svg>
+                <input id="inpSearch" type="text" placeholder="筛选中文或英文台词" spellcheck="false" />
+                <button type="button" id="btnClearSearch" aria-label="清除筛选"><svg class="i"><use href="#i-close"/></svg></button>
               </label>
-              <label>
-                <div class="ms-head"><span>字号大小</span><b id="lblEnSize">47</b></div>
-                <input type="range" id="enSize" min="18" max="76" value="47" class="slider" />
-              </label>
-              <label>
-                <div class="ms-head"><span>横向字宽</span><b><span id="lblEnScaleX">95</span>%</b></div>
-                <input type="range" id="enScaleX" min="75" max="115" step="1" value="95" class="slider" />
-              </label>
-              <label>文字颜色
-                <div class="color-pick-wrap">
-                  <input type="color" id="enColor" value="#C0A783" />
-                  <span id="lblEnColor">#C0A783</span>
+              <button class="btn btn-sm" id="btnFind" type="button" aria-pressed="false" data-tip="批量查找和替换" data-keys="Ctrl H"><svg class="i"><use href="#i-replace"/></svg>替换</button>
+              <button class="btn btn-sm" id="btnNewCue" type="button" data-tip="在播放位置新建一句" data-keys="Insert"><svg class="i"><use href="#i-plus"/></svg>新建</button>
+            </div>
+
+            <div class="oneclick" id="oneClick" role="toolbar" aria-label="一键整理">
+              <button class="magic" type="button" data-do="fix" data-tip="智能精修：断句孤行、听障音效、时间重叠、漏译，一次处理"><i class="orb-dot"><i class="orb"></i></i>智能精修</button>
+              <button type="button" data-do="punct" data-tip="美剧标点清洗：句中逗号改空格，去句末句号，问号叹号转半角"><svg class="i"><use href="#i-punct"/></svg><span>标点清洗</span></button>
+              <button type="button" data-do="pair" data-tip="合并中英行：把分开的中文行、英文行按时间配成双语"><svg class="i"><use href="#i-pair"/></svg><span>合并中英</span></button>
+              <button type="button" data-do="swap" data-tip="纠偏分栏：自动把填反的中英文归位"><svg class="i"><use href="#i-swap"/></svg><span>中英纠偏</span></button>
+              <button type="button" data-do="sort" data-tip="按开始时间重新排序"><svg class="i"><use href="#i-sort"/></svg><span>排序</span></button>
+              <button class="danger" type="button" data-do="clear" data-tip="清空全部字幕，可以撤销"><svg class="i"><use href="#i-trash"/></svg><span>清空</span></button>
+            </div>
+
+            <div class="find" id="findBar" hidden>
+              <div class="find-in">
+                <input class="field field-sm" id="inpFind" type="text" placeholder="查找" spellcheck="false" />
+                <span class="find-count num" id="findCount"></span>
+              </div>
+              <button class="icon-btn" id="btnCase" type="button" aria-pressed="false" data-tip="区分大小写"><span class="aa">Aa</span></button>
+              <button class="icon-btn" id="btnFindPrev" type="button" aria-label="上一处" data-tip="上一处" data-keys="Shift Enter"><svg class="i"><use href="#i-up"/></svg></button>
+              <button class="icon-btn" id="btnFindNext" type="button" aria-label="下一处" data-tip="下一处" data-keys="Enter"><svg class="i"><use href="#i-chev"/></svg></button>
+              <button class="icon-btn" id="btnFindClose" type="button" aria-label="关闭查找" data-tip="关闭" data-keys="Esc"><svg class="i"><use href="#i-close"/></svg></button>
+              <input class="field field-sm" id="inpReplace" type="text" placeholder="替换为（留空则删除）" spellcheck="false" />
+              <div class="seg" id="findScope" role="radiogroup" aria-label="查找范围">
+                <button type="button" role="radio" data-value="both">全部</button><button type="button" role="radio" data-value="zh">中文</button><button type="button" role="radio" data-value="en">英文</button>
+              </div>
+              <button class="btn btn-sm" id="btnReplaceAll" type="button">全部替换</button>
+            </div>
+
+            <div class="script-sub">
+              <div class="chips" id="filterChips" role="radiogroup" aria-label="筛选字幕">
+                <button type="button" role="radio" aria-checked="true" data-value="all">全部 <b class="num">0</b></button>
+                <button type="button" role="radio" aria-checked="false" data-value="missing" data-tip="中文或英文还空着">缺译 <b class="num">0</b></button>
+                <button type="button" role="radio" aria-checked="false" data-value="overlap" data-tip="和前一句时间重叠">重叠 <b class="num">0</b></button>
+                <button type="button" role="radio" aria-checked="false" data-value="short" data-tip="显示时间不足 0.75 秒">过短 <b class="num">0</b></button>
+                <button type="button" role="radio" aria-checked="false" data-value="long" data-tip="中文超过 28 字或英文超过 84 字符">过长 <b class="num">0</b></button>
+              </div>
+              <label class="switch" data-tip="点选某一句时，画面跳到它的开头"><input type="checkbox" id="chkSeek" checked /><span>点选跳转</span></label>
+            </div>
+
+            <div class="script-body" id="scriptBody">
+              <div class="script-sheet" id="scriptSheet" role="list"></div>
+              <div class="empty" id="scriptEmpty" hidden>
+                <svg class="doodle" viewBox="0 0 220 74" aria-hidden="true"><path class="d-wave" pathLength="1" d="M6 37c5-1 7-9 10-9s4 20 8 20 5-34 9-34 5 45 10 45 5-38 9-38 5 27 9 27 4-15 8-15 5 4 9 4"/><path class="d-arrow" pathLength="1" d="M88 37c7-2 14-2 22 0m-7-6c3 2 5 4 8 6-3 2-5 4-8 7"/><path class="d-line" pathLength="1" d="M126 29c27-2 54-1 84-.5"/><path class="d-line d-line-2" pathLength="1" d="M138 46c20-1.500 38-1 60-.5"/></svg>
+                <h3>台词还是空白的</h3>
+                <p>从下面任选一种方式开始，之后随时可以再合并或修改。</p>
+                <div class="empty-acts">
+                  <button type="button" id="emptyAi"><svg class="i"><use href="#i-spark"/></svg><b>AI 听写</b><small>识别视频语音，生成双语</small></button>
+                  <button type="button" id="emptyImport"><svg class="i"><use href="#i-file"/></svg><b>打开字幕</b><small>SRT、ASS、VTT、工程</small></button>
+                  <button type="button" id="emptyPaste"><svg class="i"><use href="#i-paste"/></svg><b>粘贴台词</b><small>文本变成字幕行，再打轴</small></button>
+                  <button type="button" id="emptyNew"><svg class="i"><use href="#i-plus"/></svg><b>手动新建</b><small>从当前播放位置开始</small></button>
                 </div>
-              </label>
-              <label>描边颜色
-                <div class="color-pick-wrap">
-                  <input type="color" id="enOutlineColor" value="#040000" />
-                  <span id="lblEnOutlineColor">#040000</span>
+              </div>
+              <div class="empty small" id="scriptNoMatch" hidden>
+                <p>没有符合条件的字幕</p>
+                <button class="btn btn-sm" type="button" id="btnNoMatchReset">显示全部</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 样式 -->
+          <div class="pane pane-style" data-tabpane="style" hidden>
+            <section class="sp">
+              <header class="sp-head">
+                <h4>模板</h4>
+                <span class="sp-now"><b id="presetNow"></b><em id="presetModified" hidden>已调整</em></span>
+                <button class="btn btn-ghost btn-sm" id="btnStyleReset" type="button" hidden data-tip="恢复成模板原来的样子"><svg class="i"><use href="#i-reset"/></svg>还原</button>
+              </header>
+              <div class="preset-grid" id="presetGrid" role="radiogroup" aria-label="双语模板"></div>
+              <div class="preset-save">
+                <input class="field field-sm" id="inpPresetName" type="text" maxlength="24" placeholder="给当前样式起个名字" />
+                <button class="btn btn-sm" id="btnSavePreset" type="button" data-tip="把现在的字体、颜色和版式收藏成新模板"><svg class="i"><use href="#i-star"/></svg>存为模板</button>
+              </div>
+            </section>
+
+            <section class="sp">
+              <header class="sp-head"><h4>版式</h4></header>
+              <div class="sp-row">
+                <div class="seg" id="orderSeg" role="radiogroup" aria-label="双语上下位置">
+                  <button type="button" role="radio" data-value="zh_top">上中下英</button><button type="button" role="radio" data-value="en_top">上英下中</button>
                 </div>
-              </label>
-              <label>
-                <div class="ms-head"><span>描边粗细</span><b id="lblEnOutline">0.8</b></div>
-                <input type="range" id="enOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
-              </label>
-              <label>
-                <div class="ms-head"><span>阴影深度</span><b id="lblEnShadow">0.8</b></div>
-                <input type="range" id="enShadow" min="0" max="6" step="0.1" value="0.8" class="slider" />
-              </label>
+                <div class="seg" id="langSeg" role="radiogroup" aria-label="显示语言">
+                  <button type="button" role="radio" data-value="bilingual">双语</button><button type="button" role="radio" data-value="zh_only">仅中文</button><button type="button" role="radio" data-value="en_only">仅英文</button>
+                </div>
+                <label class="switch"><input type="checkbox" id="chkBox" /><span>黑底衬条</span></label>
+              </div>
+              <div class="fader-row"><div id="faderMargin"></div><div id="faderGap"></div><div id="faderBlur"></div></div>
+            </section>
+
+            <section class="sp">
+              <header class="sp-head"><h4>字形</h4></header>
+              <div class="lang-cards">
+                <div class="lang-card" id="cardZh"></div>
+                <div class="lang-card" id="cardEn"></div>
+              </div>
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      <div class="split split-h" id="splitH" role="separator" aria-orientation="horizontal" aria-label="调整时间轴高度" tabindex="0" data-tip="拖动调整高度，双击复位"></div>
+
+      <!-- ================= Reel ================= -->
+      <section class="reel card" aria-label="时间轴">
+        <div class="reel-bar" id="reelBar">
+          <div class="mark-keys">
+            <button class="btn btn-sm" id="btnMarkStart" type="button" data-tip="把播放位置设为选中句的开始，打字时也能按"><kbd>F3</kbd>设为开始</button>
+            <button class="btn btn-sm" id="btnMarkEnd" type="button" data-tip="把播放位置设为选中句的结束，并跳到下一句"><kbd>F4</kbd>设为结束，下一句</button>
+            <button class="btn btn-ghost btn-sm" id="btnAddCue" type="button" data-tip="在播放位置新建一句，也可以双击时间轴空白处" data-keys="Insert"><svg class="i"><use href="#i-plus"/></svg>新建一句</button>
+          </div>
+          <div class="reel-end">
+            <div class="shift" data-tip="整体平移全部字幕，解决整体快了或慢了">
+              <span>整体平移</span>
+              <button type="button" class="num" data-shift="-500">−0.5s</button><button type="button" class="num" data-shift="-100">−0.1s</button><button type="button" class="num" data-shift="100">+0.1s</button><button type="button" class="num" data-shift="500">+0.5s</button>
+            </div>
+            <div class="zoom">
+              <button class="icon-btn" id="btnFollow" type="button" aria-pressed="true" aria-label="跟随播放" data-tip="跟随播放：时间轴随播放移动"><svg class="i"><use href="#i-follow"/></svg></button>
+              <button class="icon-btn" id="btnZoomCue" type="button" aria-label="放大本句" data-tip="放大到选中的这一句"><svg class="i"><use href="#i-focus"/></svg></button>
+              <button class="icon-btn" id="btnZoomFit" type="button" aria-label="显示全片" data-tip="缩放到显示全片"><svg class="i"><use href="#i-fit"/></svg></button>
+              <input class="range" id="rngZoom" type="range" min="0" max="1000" value="500" aria-label="时间轴缩放" data-tip="缩放，也可以在时间轴上按住 Ctrl 滚动" />
             </div>
           </div>
         </div>
-      </aside>
-    </section>
-
-    <!-- Interactive Splitter Handle (Drag vertically to resize video vs subtitle table!) -->
-    <div class="deck-splitter" id="deckSplitter" title="上下拖动可自由调节视频预览区与字幕表格高度比例">
-      <div class="splitter-grip"></div>
-    </div>
-
-    <!-- Middle Section: 1-Click Timing Bar & Symmetrical Stereo Waveform -->
-    <section class="timeline-deck">
-      <div class="timing-toolbar">
-        <div class="timing-hotkeys">
-          <span class="section-tag">⚡ 极速打轴</span>
-          <button class="btn btn-timing-start" id="btnMarkStart" title="把当前播放位置设为选中句的开始时间 (打字时也可直接按 F3)">
-            <kbd>F3</kbd> 设为本句开始
-          </button>
-          <button class="btn btn-timing-end" id="btnMarkEndNext" title="把当前播放位置设为选中句的结束时间，并自动跳到下一句 (打字时也可直接按 F4)">
-            <kbd>F4</kbd> 设为结束并下一句 ⏭
-          </button>
-          <button class="btn btn-ghost btn-sm" id="btnAddCueAtPlayhead" title="在当前指针位置新建一行空白字幕">
-            ➕ 新建一句
-          </button>
-        </div>
-
-        <div class="timeline-tools-right">
-          <div class="shift-group" title="整体平移全部字幕时间轴（解决字幕整体快了或慢了）">
-            <span class="shift-label">整体平移</span>
-            <button class="shift-btn" data-shift="-500">-0.5s</button>
-            <button class="shift-btn" data-shift="-100">-0.1s</button>
-            <button class="shift-btn" data-shift="100">+0.1s</button>
-            <button class="shift-btn" data-shift="500">+0.5s</button>
+        <div class="strip" id="stripWrap">
+          <div class="strip-in" id="strip">
+            <canvas id="stripBase" aria-hidden="true"></canvas>
+            <canvas id="stripHead" aria-hidden="true"></canvas>
+            <div class="strip-scroll" id="stripScroll"><div id="stripSpacer"></div></div>
           </div>
-
-          <label class="zoom-wrap" title="缩放声波时间轴比例">
-            <span>🔍 缩放</span>
-            <input type="range" id="rngZoom" min="40" max="260" value="72" class="slider slider-xs" />
-          </label>
         </div>
+      </section>
+    </main>
+
+    <!-- ================= Status ================= -->
+    <footer class="foot">
+      <div class="foot-l">
+        <button class="foot-link" type="button" id="btnFootPreset" data-tip="换一套双语模板"><svg class="i"><use href="#i-layers"/></svg><span id="footPreset"></span></button>
+        <span class="foot-save" id="footSave">自动防丢稿已开启</span>
+        <span class="foot-restore" id="restoreWrap" hidden><button id="btnRestore" type="button"><svg class="i"><use href="#i-reset"/></svg><span id="restoreLabel"></span></button><button class="x" id="btnRestoreDrop" type="button" aria-label="忽略草稿" data-tip="这次不恢复"><svg class="i"><use href="#i-close"/></svg></button></span>
+        <span class="foot-status" id="footStatus" role="status"></span>
       </div>
-
-      <div class="waveform-scroll" id="waveformScroll">
-        <canvas id="waveformCanvas" height="86"></canvas>
+      <div class="foot-r">
+        <span><kbd>F2</kbd>播放</span><span><kbd>F3</kbd>设开始</span><span><kbd>F4</kbd>设结束</span><span><kbd>F5</kbd>重播本句</span>
+        <button type="button" id="btnKeys"><kbd>F1</kbd>全部快捷键</button>
       </div>
-    </section>
-
-    <!-- Bottom Section: Side-by-Side Bilingual Subtitle Table -->
-    <section class="table-deck">
-      <div class="table-toolbar">
-        <div class="table-stats">
-          <span id="subCountBadge" class="stat-pill">共 0 句</span>
-          <span id="bilingualRateBadge" class="stat-pill stat-pill-sub">双语完整 100%</span>
-          <label class="switch-label" style="margin-left:4px;">
-            <input type="checkbox" class="ui-switch" id="chkSeekOnClick" checked />
-            <span>点选行自动跳转画面</span>
-          </label>
-          <label class="switch-label" style="margin-left:6px;" title="只显示缺少中文或缺少英文的单语行，无需在几千句里肉眼翻找">
-            <input type="checkbox" class="ui-switch" id="chkFilterMissing" />
-            <span>仅看缺译</span>
-          </label>
-        </div>
-
-        <div class="table-actions">
-          <div class="search-box-wrap">
-            <input type="text" id="inpSearch" class="input-search" placeholder="过滤中文或英文台词…" />
-          </div>
-          <button class="btn btn-magic btn-sm" id="btnOpenSmartFix" title="一键傻瓜式自动处理：一英拆两中断句孤行、英文听障音效括号 (SDH)、时间轴打架与 AI 漏译补齐">✨ 智能精修</button>
-          <button class="btn btn-ghost btn-sm" id="btnOpenFindReplace" title="批量查找与替换人名或词句 (快捷键 Ctrl+H)">🔎 查找替换</button>
-          <button class="btn btn-step btn-sm" id="btnCleanPunct" title="一键按美剧字幕组规范清洗：中文句中逗号转空格、去除句末句号、全角问号感叹号转半角">🧹 美剧标点清洗</button>
-          <button class="btn btn-step btn-sm" id="btnOpenInternalMerge" title="把表格中独立分开的中文行与英文行，按时间误差智能配对合并为双语行">🧲 合并中英行</button>
-          <button class="btn btn-ghost btn-sm" id="btnSwapAllLang" title="如果某几句中英文填反了，一键按语种自动归位">🔄 纠偏分栏</button>
-          <button class="btn btn-ghost btn-sm" id="btnClearAll" title="清空当前字幕列表（可 Ctrl+Z 撤销）">🗑️ 清空</button>
-        </div>
-      </div>
-
-      <div class="sub-table-header">
-        <div class="col-idx">#</div>
-        <div class="col-time">时间轴 · 时长</div>
-        <div class="col-zh">🇨🇳 中文台词 <span class="col-hint">Enter 跳下一句</span></div>
-        <div class="col-en">🇬🇧 英文台词 <span class="col-hint">Enter 跳下一句</span></div>
-        <div class="col-ops">快捷操作</div>
-      </div>
-
-      <div class="sub-table-body" id="subTableBody"></div>
-    </section>
-  </main>
-
-  <!-- Studio Shortcut Cheat-Sheet Status Footer -->
-  <footer class="statusbar">
-    <div class="status-left">
-      <span id="activePresetFooter">🎨 当前模板：美剧双语经典 (默认)</span>
-      <span class="status-sep">·</span>
-      <span id="autosaveStatusText">💾 自动防丢稿已开启</span>
-      <button class="btn-restore-draft hidden" id="btnRestoreAutosave">📂 恢复上次未导出草稿</button>
-    </div>
-    <div class="status-shortcuts">
-      <span><kbd>F2</kbd> 播放/暂停</span>
-      <span><kbd>F3</kbd> 设开始</span>
-      <span><kbd>F4</kbd> 设结束跳下句</span>
-      <span><kbd>F5</kbd> 重播本句</span>
-      <span><kbd>Ctrl+H</kbd> 查找替换</span>
-      <span><kbd>Ctrl+Z</kbd> 撤销</span>
-    </div>
-  </footer>
-
-  <!-- Modal 1: Import / Merge / Paste Script Wizard -->
-  <div class="modal-backdrop hidden" id="modalImport">
-    <div class="modal-card modal-lg">
-      <div class="modal-header">
-        <h3>📂 导入或智能合并双语字幕</h3>
-        <button class="modal-close" data-close="modalImport">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="mode-cards-3">
-          <div class="action-card" id="cardImportReplace">
-            <div class="ac-icon">📄</div>
-            <div class="ac-title">打开已有字幕文件</div>
-            <div class="ac-desc">支持 .srt / .ass / .vtt / .txt。内置伪双语同轴自动识别，即使原文件把中英拆成两条同时间独立事件，也会自动合并进左右分栏！</div>
-            <button class="btn btn-primary btn-block">选择字幕文件打开</button>
-          </div>
-
-          <div class="action-card" id="cardImportMerge">
-            <div class="ac-icon">🧲</div>
-            <div class="ac-title">合并第二份单语字幕文件</div>
-            <div class="ac-desc">先打开一份英文(或中文)字幕，再导入另一份单语字幕智能合轴：</div>
-            <div class="form-grid-2">
-              <label>匹配算法
-                <select id="selMergeAlign" class="input-sm">
-                  <option value="time" selected>时间重叠智能匹配 (推荐)</option>
-                  <option value="strict_time">起止误差严格匹配</option>
-                  <option value="index">按行号逐句配对</option>
-                </select>
-              </label>
-              <label>合并后时间轴基准
-                <select id="selMergeTimeBase" class="input-sm">
-                  <option value="union" selected>取两者并集 (覆盖最长)</option>
-                  <option value="en">以英文行时间为准 (原盘轴推荐)</option>
-                  <option value="zh">以中文行时间为准</option>
-                  <option value="primary">保留第一份主字幕时间</option>
-                </select>
-              </label>
-            </div>
-            <label class="inline-num-row">
-              <span>最大允许时间误差 (ms):</span>
-              <input type="number" id="inpMergeTolerance" class="input-sm" style="width:95px;" min="0" max="5000" step="50" value="800" />
-            </label>
-            <button class="btn btn-ai btn-block" id="btnPickMergeFile">选择第二份字幕合并</button>
-          </div>
-        </div>
-
-        <!-- In-table Single-File Alternating / Unpaired CN+EN Merge Box -->
-        <div class="paste-box" id="secInternalMergeBox">
-          <div class="paste-title">🔀 表内单语行智能配对合并（将列表中独立分开的中、英文行合并成双语行，无需严格交替排列）</div>
-          <div class="form-grid-3">
-            <label>时间轴基准
-              <select id="selIntTimeBase" class="input-sm">
-                <option value="union" selected>取两者并集 (覆盖最长)</option>
-                <option value="zh">以中文行时间为准</option>
-                <option value="en">以英文行时间为准</option>
-              </select>
-            </label>
-            <label>时间匹配方式
-              <select id="selIntMatchMode" class="input-sm">
-                <option value="tolerance" selected>起止误差严格匹配 (精准推荐)</option>
-                <option value="overlap">时间段重叠智能匹配</option>
-              </select>
-            </label>
-            <label>允许时间误差 (ms)
-              <input type="number" id="inpIntTolerance" class="input-sm" min="0" max="3000" step="25" value="200" />
-            </label>
-          </div>
-          <div class="paste-footer" style="justify-content:flex-end;">
-            <button class="btn btn-ghost btn-sm" id="btnPreviewInternalMerge">🔍 仅生成预览报告 (不修改)</button>
-            <button class="btn btn-ai btn-sm" id="btnRunInternalMerge">⚡ 立即执行配对合并</button>
-          </div>
-          <pre id="mergeReportPre" class="merge-report-pre hidden"></pre>
-        </div>
-
-        <div class="paste-box">
-          <div class="paste-title">📝 或者：直接粘贴纯文本台词 / 译文剧本一键生成字幕行</div>
-          <textarea id="txtPasteScript" rows="3" placeholder="在此粘贴英文台词、中文台词，或“一句中文换行一句英文”的双语文本…&#10;导入后只需播放视频按 [F3] 和 [F4] 即可飞速完成打轴！"></textarea>
-          <div class="paste-footer">
-            <select id="selPasteMode" class="input-sm">
-              <option value="auto_pair">智能识别 (中英交替自动成对 / 单语逐行)</option>
-              <option value="zh_only">全部作为中文台词</option>
-              <option value="en_only">全部作为英文台词</option>
-            </select>
-            <label class="switch-label">
-              <input type="checkbox" class="ui-switch" id="chkPasteMerge" />
-              <span>逐行填入当前已有列表（不覆盖原时间轴）</span>
-            </label>
-            <button class="btn btn-step" id="btnConfirmPaste">导入粘贴文本</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </footer>
   </div>
 
-  <!-- Modal 2: AI Speech Recognition & Bilingual Translation -->
-  <div class="modal-backdrop hidden" id="modalAi">
-    <div class="modal-card modal-lg">
-      <div class="modal-header">
-        <h3>✨ AI 自动听写与双语翻译助手</h3>
-        <button class="modal-close" data-close="modalAi">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="ai-workflow-grid">
-          <label class="wf-radio active">
-            <input type="radio" name="aiWorkflow" value="asr_and_translate" checked />
-            <div class="wf-title">🚀 视频一键生成中英双语</div>
-            <div class="wf-desc">自动识别视频人声打好时间轴，并直接翻译成中英双语字幕</div>
-          </label>
-          <label class="wf-radio">
-            <input type="radio" name="aiWorkflow" value="translate_only" />
-            <div class="wf-title">🌐 仅把现有单语翻译成双语</div>
-            <div class="wf-desc">已有英文字幕或中文字幕，一键批量补全另一半语言</div>
-          </label>
-          <label class="wf-radio">
-            <input type="radio" name="aiWorkflow" value="asr_only" />
-            <div class="wf-title">🎙️ 仅语音听写提取原声轴</div>
-            <div class="wf-desc">只把视频里的英文/中文语音转成带时间轴的字幕，暂不翻译</div>
-          </label>
+  <!-- ================= Dialogs ================= -->
+
+  <!-- Import -->
+  <div class="modal" id="modalImport" role="dialog" aria-modal="true" aria-labelledby="ttlImport" hidden>
+    <div class="sheet sheet-wide">
+      <header class="sheet-head"><h2 id="ttlImport">导入与合轴</h2><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-split">
+        <div class="side-tabs" id="importTabs" role="tablist">
+          <button type="button" role="tab" aria-selected="true" data-value="open"><svg class="i"><use href="#i-file"/></svg>打开字幕</button>
+          <button type="button" role="tab" aria-selected="false" data-value="merge"><svg class="i"><use href="#i-layers"/></svg>合并第二份</button>
+          <button type="button" role="tab" aria-selected="false" data-value="pair"><svg class="i"><use href="#i-pair"/></svg>表内配对</button>
+          <button type="button" role="tab" aria-selected="false" data-value="paste"><svg class="i"><use href="#i-paste"/></svg>粘贴台词</button>
         </div>
-
-        <div class="ai-config-section" id="secAsrConfig">
-          <div class="sec-heading">🎙️ 语音识别设置 (Whisper)</div>
-          <div class="form-grid-3">
-            <label>识别方式
-              <select id="aiAsrEngine" class="input-sm">
-                <option value="local">本地免费离线模型 (Faster-Whisper)</option>
-                <option value="api">云端 OpenAI 兼容语音 API</option>
-              </select>
-            </label>
-            <label id="wrapLocalModel">本地模型精度
-              <select id="aiAsrModelSize" class="input-sm">
-                <option value="tiny">Tiny (极速预览，约 75MB)</option>
-                <option value="base" selected>Base (日常推荐，速度与准确兼顾)</option>
-                <option value="small">Small (高准确率，适合口音复杂电影)</option>
-                <option value="medium">Medium (专业影视级，耗时较长)</option>
-              </select>
-            </label>
-            <label>视频原声语言
-              <select id="aiAsrLang" class="input-sm">
-                <option value="en" selected>英语原声 (English)</option>
-                <option value="zh">中文原声 (Chinese)</option>
-                <option value="auto">自动检测语言</option>
-              </select>
-            </label>
+        <div class="side-body">
+          <div data-pane="open">
+            <h3>打开一份字幕或工程</h3>
+            <p class="lead">支持 SRT、ASS、SSA、VTT、TXT，以及 EasySub 工程（JSON，会连同样式一起恢复）。双语字幕会自动拆成中英两栏，把中英写成两条独立事件的文件也会自动合并。</p>
+            <button class="btn btn-primary btn-lg" type="button" id="btnPickReplace"><svg class="i"><use href="#i-file"/></svg>选择字幕文件</button>
+            <p class="hint">会替换当前列表，可以撤销。也可以把文件直接拖进窗口。</p>
           </div>
-
-          <div class="form-grid-3 hidden" id="wrapAsrApi">
-            <label>API Base URL
-              <input type="text" id="aiAsrApiBase" class="input-sm" placeholder="https://api.openai.com/v1" />
-            </label>
-            <label>API Key
-              <input type="password" id="aiAsrApiKey" class="input-sm" placeholder="sk-..." />
-            </label>
-            <label>语音模型名称
-              <input type="text" id="aiAsrApiModel" class="input-sm" placeholder="whisper-1" />
-            </label>
-          </div>
-        </div>
-
-        <div class="ai-config-section" id="secTransConfig">
-          <div class="sec-heading-row">
-            <div class="sec-heading">🌐 双语翻译与 AI 精翻 Agent 设置</div>
-            <label class="switch-label">
-              <input type="checkbox" class="ui-switch" id="aiTransOverwrite" />
-              <span>覆盖已有译文（默认仅补全空行）</span>
-            </label>
-          </div>
-          <div class="form-grid-2">
-            <label>翻译方向
-              <select id="aiTransDir" class="input-sm">
-                <option value="en_to_zh" selected>英文 ➔ 翻译生成中文 (最常用)</option>
-                <option value="zh_to_en">中文 ➔ 翻译生成英文</option>
-              </select>
-            </label>
-            <label>翻译引擎
-              <select id="aiTransProvider" class="input-sm">
-                <option value="free" selected>⚡ 免配置极速神经网络翻译 (开箱即用)</option>
-                <option value="llm">🧠 AI 影视精翻 Agent (DeepSeek / OpenAI / 千问)</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="llm-quick-bar">
-            <span class="llm-quick-lbl">🚀 一键配置大模型：</span>
-            <button type="button" class="prov-chip" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>
-            <button type="button" class="prov-chip" data-base="https://api.siliconflow.cn/v1" data-model="deepseek-ai/DeepSeek-V3">硅基流动</button>
-            <button type="button" class="prov-chip" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">通义千问</button>
-            <button type="button" class="prov-chip" data-base="https://api.openai.com/v1" data-model="gpt-4o-mini">OpenAI</button>
-            <button type="button" class="prov-chip" data-base="https://api.moonshot.cn/v1" data-model="moonshot-v1-8k">Kimi</button>
-            <button type="button" class="prov-chip" data-base="http://127.0.0.1:11434/v1" data-model="qwen2.5:14b">本地 Ollama</button>
-            <button type="button" class="btn btn-step btn-xs-test" id="btnTestLlmApi" title="立即保存并测试当前 API Key 与模型是否连通">🔌 测试连接</button>
-          </div>
-
-          <div class="llm-agent-box hidden" id="wrapLlmApi">
-
-            <div class="form-grid-3">
-              <label>大模型 API Base URL
-                <input type="text" id="aiLlmBase" class="input-sm" placeholder="https://api.deepseek.com/v1" />
-              </label>
-              <label>大模型 API Key
-                <div class="key-inp-wrap">
-                  <input type="password" id="aiLlmKey" class="input-sm" placeholder="sk-... (输入后自动本机保存)" />
-                  <button type="button" class="key-eye-btn" id="btnToggleKeyVis" title="显示 / 隐藏 API Key">👁</button>
-                </div>
-              </label>
-              <label>模型名称 (Model)
-                <input type="text" id="aiLlmModel" class="input-sm" placeholder="deepseek-chat / deepseek-reasoner" />
-              </label>
+          <div data-pane="merge" hidden>
+            <h3>把第二份单语字幕合进来</h3>
+            <p class="lead">先打开一份中文或英文字幕，再选另一种语言的那一份，按时间自动对齐成双语。<span id="mergeState"></span></p>
+            <div class="grid-3">
+              <label class="lbl"><span>匹配方式</span><select class="field" id="selMergeAlign"><option value="time" selected>按时间重叠（推荐）</option><option value="strict_time">起止误差严格匹配</option><option value="index">按行号逐句配对</option></select></label>
+              <label class="lbl"><span>合并后的时间</span><select class="field" id="selMergeBase"><option value="union" selected>取并集（覆盖最长）</option><option value="en">以英文为准（原盘轴）</option><option value="zh">以中文为准</option><option value="primary">保留第一份的时间</option></select></label>
+              <label class="lbl"><span>允许误差（毫秒）</span><input class="field num" id="numMergeTol" type="number" min="0" max="5000" step="50" value="800" /></label>
             </div>
-
-            <div class="form-grid-2">
-              <label>
-                <div class="ms-head">
-                  <span>🎭 翻译 Agent 专家人设 (内置领域精调 Prompt)</span>
-                  <a href="#" id="btnTogglePromptEdit" class="link-mini">查看/微调提示词</a>
-                </div>
-                <select id="aiTransPreset" class="input-sm">
-                  <option value="us_drama" selected>🎬 美剧 / 好莱坞大片精翻 Agent (默认推荐)</option>
-                  <option value="scifi_epic">🌌 科幻 / 奇幻史诗考据 Agent (沙丘 / 权游 / 星战)</option>
-                  <option value="doc_tech">🎓 纪录片 / TED 科普学术 Agent (BBC / 科技 / 访谈)</option>
-                  <option value="sitcom_humor">😂 情景喜剧 / 综艺脱口秀 Agent (老友记 / 喜剧)</option>
-                  <option value="anime_game">⚔️ 动漫 / 剧情向游戏热血 Agent</option>
-                  <option value="custom">✍️ 自定义专属翻译 Agent 提示词</option>
-                </select>
-              </label>
-              <label class="check-bottom switch-label" title="开启后 Agent 会先通读全片自动提取统一人物译名，再结合上下各 4 句滑动窗口与每句时长精准翻译">
-                <input type="checkbox" class="ui-switch" id="aiTransAgentMode" checked />
-                <span>启用三阶段 Agent（全片术语自学习 + 上下文滑动精翻）</span>
-              </label>
+            <button class="btn btn-primary btn-lg" type="button" id="btnPickMerge"><svg class="i"><use href="#i-layers"/></svg>选择第二份字幕</button>
+          </div>
+          <div data-pane="pair" hidden>
+            <h3>把表里分开的中英行配成双语</h3>
+            <p class="lead">适合中文、英文各占一行的列表，不要求严格交替。建议先看预览报告，再执行合并。</p>
+            <div class="grid-3">
+              <label class="lbl"><span>合并后的时间</span><select class="field" id="selPairBase"><option value="union" selected>取并集（覆盖最长）</option><option value="zh">以中文行为准</option><option value="en">以英文行为准</option></select></label>
+              <label class="lbl"><span>匹配方式</span><select class="field" id="selPairMode"><option value="tolerance" selected>起止误差匹配（推荐）</option><option value="overlap">时间段重叠匹配</option></select></label>
+              <label class="lbl"><span>允许误差（毫秒）</span><input class="field num" id="numPairTol" type="number" min="0" max="3000" step="25" value="200" /></label>
             </div>
-
-            <label class="hidden" id="wrapCustomPrompt" style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:#b0bfd4;">
-              <span>📝 Agent 系统提示词（选择上方预设可作为底稿补充要求，或选“自定义”完全接管）</span>
-              <textarea id="aiTransCustomPrompt" rows="3" class="textarea-compact" placeholder="可输入补充翻译规范，例如：保持冷峻克制的硬汉台词风格、遇到军事呼号保留简写…"></textarea>
-            </label>
+            <div class="row-acts"><button class="btn btn-lg" type="button" id="btnPairPreview"><svg class="i"><use href="#i-search"/></svg>预览报告</button><button class="btn btn-primary btn-lg" type="button" id="btnPairRun"><svg class="i"><use href="#i-pair"/></svg>执行合并</button></div>
+            <pre class="report" id="pairReport" hidden></pre>
           </div>
-
-          <div class="form-grid-2">
-            <label>🎞️ 影片背景 / 剧情简注（选填，让 AI 翻译更精准）
-              <input type="text" id="aiTransContext" class="input-sm" placeholder="例如：电影《沙丘2》，保罗与弗雷曼人对抗哈克南家族" />
-            </label>
-            <label>📖 专有名词 / 人名固定译法表（选填，逗号分隔）
-              <input type="text" id="aiGlossary" class="input-sm" placeholder="例如：Spice=香料, Paul=保罗, Harkonnen=哈克南" />
-            </label>
-          </div>
-        </div>
-
-        <div class="ai-progress-box hidden" id="aiProgressBox">
-          <div class="ai-prog-label" id="aiProgressText">正在准备任务…</div>
-          <div class="ai-prog-track">
-            <div class="ai-prog-bar" id="aiProgressBar" style="width: 10%"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <span id="lblAiSaveStatus" class="ai-save-hint">💡 填写的 Key 与人设会自动持久保存，也可用于行内单句翻译与智能精修</span>
-        <button class="btn btn-ghost" data-close="modalAi">关闭</button>
-        <button class="btn btn-step" id="btnSaveAiSettings" title="仅保存当前 API Key、Agent 人设与术语配置，暂不执行批量生成">💾 保存配置</button>
-        <button class="btn btn-ai btn-lg" id="btnStartAiRun">✨ 立即开始 AI 生成</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal 3: Export ASS / SUP / SRT -->
-  <div class="modal-backdrop hidden" id="modalExport">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>💾 导出字幕文件</h3>
-        <button class="modal-close" data-close="modalExport">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="export-option-list">
-          <div class="export-card recommended" data-fmt="ass" data-lang="bilingual">
-            <div>
-              <div class="exp-title">🌟 导出 ASS 影视特效双语字幕 <span class="tag-rec">强烈推荐</span></div>
-              <div class="exp-desc">100% 保留你在右侧调好的中英文字体、窄字宽、颜色、描边阴影与柔边羽化，PotPlayer / VLC / MPV 完美兼容且多行绝不重叠！</div>
-            </div>
-            <button class="btn btn-primary">导出双语 .ASS</button>
-          </div>
-
-          <div class="export-card" id="cardJumpToSup">
-            <div>
-              <div class="exp-title">💿 导出蓝光原盘 PGS (.SUP) 图形字幕</div>
-              <div class="exp-desc">使用内置 libass 将双语字体、窄字宽与柔边直接光栅化为 1080p/4K 蓝光图形流，芝杜 / Apple TV Infuse / Plex / 蓝光碟机无需装字体也能 100% 还原特效！</div>
-            </div>
-            <button class="btn btn-ai">去压制 .SUP</button>
-          </div>
-
-          <div class="export-card" data-fmt="srt" data-lang="bilingual">
-            <div>
-              <div class="exp-title">📄 导出 SRT 通用双语字幕</div>
-              <div class="exp-desc">纯文本时间轴双语格式，兼容所有电视、手机播放器及视频平台外挂字幕上传。</div>
-            </div>
-            <button class="btn btn-step">导出双语 .SRT</button>
-          </div>
-
-          <div class="export-sub-row">
-            <span>单独导出单语或保存工程：</span>
-            <div class="export-mini-btns">
-              <button class="btn btn-ghost btn-sm" data-fmt="srt" data-lang="zh_only">仅中文 .SRT</button>
-              <button class="btn btn-ghost btn-sm" data-fmt="srt" data-lang="en_only">仅英文 .SRT</button>
-              <button class="btn btn-ghost btn-sm" data-fmt="ass" data-lang="zh_only">仅中文 .ASS</button>
-              <button class="btn btn-ghost btn-sm" data-fmt="project" data-lang="bilingual">💾 保存项目 (.json)</button>
+          <div data-pane="paste" hidden>
+            <h3>粘贴台词或译文</h3>
+            <textarea class="field" id="txtPaste" rows="8" spellcheck="false" placeholder="每行一句。一行中文、一行英文交替时会自动成对。&#10;导入后播放视频，按 F3 和 F4 就能完成打轴。"></textarea>
+            <div class="row-acts between">
+              <select class="field" id="selPasteMode"><option value="auto_pair">智能识别（中英交替成对）</option><option value="zh_only">全部作为中文</option><option value="en_only">全部作为英文</option></select>
+              <label class="switch"><input type="checkbox" id="chkPasteMerge" /><span>逐行填入现有列表，保留时间轴</span></label>
+              <button class="btn btn-primary" type="button" id="btnPasteGo" data-tip="生成字幕行" data-keys="Ctrl Enter">生成字幕</button>
             </div>
           </div>
         </div>
@@ -715,204 +413,178 @@
     </div>
   </div>
 
-  <!-- Modal 4: ASS to Blu-ray PGS (.SUP) Converter & Exporter -->
-  <div class="modal-backdrop hidden" id="modalSup">
-    <div class="modal-card modal-lg">
-      <div class="modal-header">
-        <h3>💿 ASS 转蓝光原盘 SUP (PGS) 图形字幕工作台</h3>
-        <button class="modal-close" data-close="modalSup">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="ai-config-section">
-          <div class="sec-heading">⚙️ 蓝光图形压制规格</div>
-          <div class="form-grid-3">
-            <label>画面分辨率
-              <select id="supResolution" class="input-sm">
-                <option value="1080p" selected>1080p 全高清 (1920×1080 · 最通用)</option>
-                <option value="4k">4K UHD 原盘 (3840×2160 · 超清矢量)</option>
-                <option value="720p">720p 高清 (1280×720)</option>
-              </select>
-            </label>
-            <label>目标帧率 (FPS)
-              <select id="supFps" class="input-sm">
-                <option value="23.976" selected>23.976 fps (美剧/电影蓝光默认)</option>
-                <option value="24">24.000 fps (电影数字母版)</option>
-                <option value="25">25.000 fps (英剧/PAL制)</option>
-                <option value="29.97">29.970 fps (NTSC视频)</option>
-                <option value="50">50.000 fps</option>
-                <option value="59.94">59.940 fps (高帧率原盘)</option>
-              </select>
-            </label>
-            <label>当前字幕导出语种
-              <select id="supLangMode" class="input-sm">
-                <option value="bilingual" selected>中英双语 (默认)</option>
-                <option value="zh_only">仅导出中文字幕</option>
-                <option value="en_only">仅导出英文字幕</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div class="mode-cards-3">
-          <div class="action-card">
-            <div class="ac-icon">📂</div>
-            <div class="ac-title">本地 .ASS 文件直接转 .SUP（支持多选批量！）</div>
-            <div class="ac-desc">已有现成的 .ass 字幕？点击选择 1 个或整季多个 .ass 文件，自动按原文件内的全部字体、顶部注释与特效直接生成同名蓝光 .sup 文件！</div>
-            <button class="btn btn-ai btn-block" id="btnConvertAssFilesToSup">📂 选择本地 .ASS 文件（可多选）转 .SUP</button>
+  <!-- AI -->
+  <div class="modal" id="modalAi" role="dialog" aria-modal="true" aria-labelledby="ttlAi" hidden>
+    <div class="sheet sheet-wide">
+      <header class="sheet-head"><h2 id="ttlAi">AI 听写与翻译</h2><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body">
+        <div id="aiForm" class="stack">
+          <div class="wfs" id="aiWorkflows" role="radiogroup" aria-label="任务">
+            <div class="wf" role="radio" tabindex="0" aria-checked="true" data-value="asr_and_translate"><svg class="i"><use href="#i-spark"/></svg><b>听写并翻译</b><small>识别人声、打好时间轴，直接生成双语</small></div>
+            <div class="wf" role="radio" tabindex="0" aria-checked="false" data-value="translate_only"><svg class="i"><use href="#i-translate"/></svg><b>只翻译</b><small>已有一种语言，批量补全另一种</small></div>
+            <div class="wf" role="radio" tabindex="0" aria-checked="false" data-value="asr_only"><svg class="i"><use href="#i-mic"/></svg><b>只听写</b><small>生成带时间轴的原声字幕，暂不翻译</small></div>
           </div>
 
-          <div class="action-card">
-            <div class="ac-icon">🎬</div>
-            <div class="ac-title">把当前编辑器内的字幕导出为 .SUP</div>
-            <div class="ac-desc">将当前表格中的双语字幕，套用右侧所选的美剧双语样式（含窄字宽、柔边羽化与上下排版），直接渲染压制为 .sup 文件！</div>
-            <button class="btn btn-primary btn-block" id="btnExportCurrentToSup">💾 将当前编辑字幕导出为 .SUP</button>
-          </div>
-        </div>
-
-        <div class="ai-progress-box hidden" id="supProgressBox">
-          <div class="ai-prog-label" id="supProgressText">正在启动蓝光 SUP 渲染引擎…</div>
-          <div class="ai-prog-track">
-            <div class="ai-prog-bar" id="supProgressBar" style="width: 6%"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal 5: Batch Find & Replace (Ctrl+H) -->
-  <div class="modal-backdrop hidden" id="modalFindReplace">
-    <div class="modal-card" style="width:520px;">
-      <div class="modal-header">
-        <h3>🔎 批量查找与替换 (Ctrl+H)</h3>
-        <button class="modal-close" data-close="modalFindReplace">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-grid-2">
-          <label class="span-2">查找内容
-            <input type="text" id="inpFindText" class="input-sm" placeholder="输入要查找的人名、词汇或符号…" />
-          </label>
-          <label class="span-2">替换为
-            <input type="text" id="inpReplaceText" class="input-sm" placeholder="输入替换后的内容（留空则表示删除匹配词）…" />
-          </label>
-          <label>作用范围
-            <select id="selFindScope" class="input-sm">
-              <option value="both" selected>中英文双栏同时查找</option>
-              <option value="zh">仅在 🇨🇳 中文栏查找</option>
-              <option value="en">仅在 🇬🇧 英文栏查找</option>
-            </select>
-          </label>
-          <label class="check-bottom switch-label">
-            <input type="checkbox" class="ui-switch" id="chkFindCase" />
-            <span>区分英文字母大小写</span>
-          </label>
-        </div>
-        <div class="find-stat-bar">
-          <span id="lblFindCount">请输入查找词…</span>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" data-close="modalFindReplace">关闭</button>
-        <button class="btn btn-primary" id="btnRunReplaceAll">⚡ 全部替换</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal 6: Foolproof 1-Click Smart Bilingual Fixer Wizard -->
-  <div class="modal-backdrop hidden" id="modalSmartFix">
-    <div class="modal-card modal-lg" style="width:650px;">
-      <div class="modal-header">
-        <h3>✨ 一键双语傻瓜精修向导</h3>
-        <button class="modal-close" data-close="modalSmartFix">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="diag-grid-4">
-          <div class="diag-pill">
-            <span class="diag-num" id="diagOrphanCount">0</span>
-            <span class="diag-lbl">🧩 断句孤行 (一英拆两中)</span>
-          </div>
-          <div class="diag-pill">
-            <span class="diag-num" id="diagSdhCount">0</span>
-            <span class="diag-lbl">🔇 听障音效行 / 括号</span>
-          </div>
-          <div class="diag-pill">
-            <span class="diag-num" id="diagOverlapCount">0</span>
-            <span class="diag-lbl">⏱️ 上下句时间重叠</span>
-          </div>
-          <div class="diag-pill">
-            <span class="diag-num" id="diagMissingCount">0</span>
-            <span class="diag-lbl">🌐 待补译单语对白</span>
-          </div>
-        </div>
-
-        <div class="fix-opt-list">
-          <div class="fix-opt-card">
-            <div class="fix-opt-head">
-              <span class="fix-opt-title">🧩 断句孤行智能处理（专治合轴后“上一句只有中文、下一句中英都有”）</span>
+          <section class="box" id="secAsr">
+            <h4>语音识别</h4>
+            <div class="grid-3">
+              <label class="lbl"><span>识别方式</span><select class="field" id="aiAsrEngine"><option value="local">本地离线（免费）</option><option value="api">云端 OpenAI 兼容接口</option></select></label>
+              <label class="lbl" id="wrapLocalModel"><span>模型精度</span><select class="field" id="aiAsrModelSize"><option value="tiny">Tiny：极速预览，约 75 MB</option><option value="base" selected>Base：日常推荐</option><option value="small">Small：更准，适合口音复杂</option><option value="medium">Medium：影视级，耗时较长</option></select></label>
+              <label class="lbl"><span>原声语言</span><select class="field" id="aiAsrLang"><option value="en" selected>英语</option><option value="zh">中文</option><option value="auto">自动检测</option></select></label>
             </div>
-            <select id="selOrphanFixMode" class="input-sm" style="margin-top:4px;">
-              <option value="merge" selected>⚡ 自动吸附合并为完整一句（推荐 · 零等待秒成，如 19+20 行合并共用完整英文）</option>
-              <option value="ai_split">🤖 AI 语义智能切分长句填回空行（保留原两段短时间轴，自动把长句一分为二）</option>
-              <option value="none">暂不处理断句孤行</option>
-            </select>
-          </div>
-
-          <label class="fix-opt-card fix-opt-row">
-            <input type="checkbox" class="ui-switch" id="chkFixSdh" checked />
-            <div class="fix-opt-meta">
-              <div class="fix-opt-title">🔇 自动清除英文听障音效与括号噪音 (SDH)</div>
-              <div class="fix-opt-desc">一键剔除蓝光原盘自带的 (grunts)、(breathes deeply)、[sighs]、♪ 等音效词，并自动删掉纯音效空行</div>
+            <div class="grid-3" id="wrapAsrApi" hidden>
+              <label class="lbl"><span>接口地址</span><input class="field" id="aiAsrApiBase" type="text" spellcheck="false" placeholder="https://api.openai.com/v1" /></label>
+              <label class="lbl"><span>API Key</span><span class="secret"><input class="field" id="aiAsrApiKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…" /><button class="icon-btn" type="button" data-reveal="aiAsrApiKey" aria-pressed="false" aria-label="显示密钥"><svg class="i"><use href="#i-eye"/></svg></button></span></label>
+              <label class="lbl"><span>模型名称</span><input class="field" id="aiAsrApiModel" type="text" spellcheck="false" placeholder="whisper-1" /></label>
             </div>
-          </label>
+          </section>
 
-          <label class="fix-opt-card fix-opt-row">
-            <input type="checkbox" class="ui-switch" id="chkFixOverlaps" checked />
-            <div class="fix-opt-meta">
-              <div class="fix-opt-title">⏱️ 自动修平上下句重叠时间轴</div>
-              <div class="fix-opt-desc">自动修剪前后打架的时间戳，彻底杜绝播放时两句双语字幕在画面底部上下跳闪堆叠</div>
+          <section class="box" id="secTrans">
+            <div class="box-head"><h4>双语翻译</h4><label class="switch"><input type="checkbox" id="aiOverwrite" /><span>覆盖已有译文（默认只补空行）</span></label></div>
+            <div class="grid-2">
+              <div class="lbl"><span>翻译方向</span><div class="seg seg-fill seg-tall" id="aiTransDir" role="radiogroup" aria-label="翻译方向"><button type="button" role="radio" data-value="en_to_zh">英文译中文</button><button type="button" role="radio" data-value="zh_to_en">中文译英文</button></div></div>
+              <label class="lbl"><span>翻译引擎</span><select class="field" id="aiTransProvider"><option value="free" selected>免配置极速翻译（开箱即用）</option><option value="llm">AI 影视精翻 Agent（DeepSeek、OpenAI、千问）</option></select></label>
             </div>
-          </label>
 
-          <div class="fix-opt-card" style="cursor:default;">
-            <label class="fix-opt-row" style="cursor:pointer;">
-              <input type="checkbox" class="ui-switch" id="chkFixFillAi" />
-              <div class="fix-opt-meta">
-                <div class="fix-opt-title">🤖 AI 自动翻译补全剩余缺译单语行（免配置开箱即用 / 支持大模型）</div>
-                <div class="fix-opt-desc">将清理后仍然缺少英文或中文的对白自动翻译补齐，提升全片双语完整度至接近 100%</div>
+            <div class="provs" id="provChips">
+              <span>一键填入</span>
+              <button type="button" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>
+              <button type="button" data-base="https://api.siliconflow.cn/v1" data-model="deepseek-ai/DeepSeek-V3">硅基流动</button>
+              <button type="button" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">通义千问</button>
+              <button type="button" data-base="https://api.openai.com/v1" data-model="gpt-4o-mini">OpenAI</button>
+              <button type="button" data-base="https://api.moonshot.cn/v1" data-model="moonshot-v1-8k">Kimi</button>
+              <button type="button" data-base="http://127.0.0.1:11434/v1" data-model="qwen2.5:14b">本地 Ollama</button>
+              <button class="btn btn-sm" type="button" id="btnTestLlm" data-tip="保存并测试当前 API Key 与模型是否连通"><span>测试连接</span></button>
+            </div>
+
+            <div class="agent" id="wrapLlm" hidden>
+              <div class="grid-3">
+                <label class="lbl"><span>接口地址</span><input class="field" id="aiLlmBase" type="text" spellcheck="false" placeholder="https://api.deepseek.com/v1" /></label>
+                <label class="lbl"><span>API Key</span><span class="secret"><input class="field" id="aiLlmKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…（自动保存在本机）" /><button class="icon-btn" type="button" data-reveal="aiLlmKey" aria-pressed="false" aria-label="显示密钥"><svg class="i"><use href="#i-eye"/></svg></button></span></label>
+                <label class="lbl"><span>模型名称</span><input class="field" id="aiLlmModel" type="text" spellcheck="false" placeholder="deepseek-chat" /></label>
               </div>
-            </label>
-            <label class="switch-label" style="margin:6px 0 0 47px;">
-              <input type="checkbox" class="ui-switch" id="chkSkipForeignNotes" checked />
-              <span style="font-size:11.5px;color:#94a3b8;">智能跳过“(哈克南语)”、“(弗雷曼语)”等外星语/外语标注行</span>
-            </label>
-          </div>
-
-          <label class="fix-opt-card fix-opt-row">
-            <input type="checkbox" class="ui-switch" id="chkFixUsPunct" />
-            <div class="fix-opt-meta">
-              <div class="fix-opt-title">🧹 顺带执行美剧标点规范化清洗</div>
-              <div class="fix-opt-desc">中文句内逗号转空格、去除句末句号、全角问号感叹号统一转清爽半角</div>
+              <div class="grid-2 agent-row">
+                <div class="lbl"><span class="lbl-row">翻译 Agent 人设<button class="link" type="button" id="btnPrompt">查看和微调提示词</button></span>
+                  <select class="field" id="aiTransPreset" aria-label="翻译 Agent 人设"><option value="us_drama" selected>美剧、好莱坞大片（默认）</option><option value="scifi_epic">科幻、奇幻史诗（沙丘、权游、星战）</option><option value="doc_tech">纪录片、科普学术（BBC、TED、访谈）</option><option value="sitcom_humor">情景喜剧、综艺脱口秀</option><option value="anime_game">动漫、剧情向游戏</option><option value="custom">自定义提示词</option></select></div>
+                <label class="switch" data-tip="先通读全片统一人名术语，再结合上下各 4 句和每句时长翻译"><input type="checkbox" id="aiAgentMode" checked /><span>三阶段 Agent：全片术语自学习 + 上下文精翻</span></label>
+              </div>
+              <div class="lbl" id="wrapPrompt" hidden><span>提示词（选内置人设时作为补充要求，选“自定义”时完全接管）</span><pre class="prompt-base" id="promptBase"></pre><textarea class="field" id="aiCustomPrompt" rows="3" spellcheck="false" placeholder="例如：保持冷峻克制的硬汉台词风格，军事呼号保留简写"></textarea></div>
             </div>
-          </label>
-        </div>
 
-        <div class="ai-progress-box hidden" id="smartFixProgressBox">
-          <div class="ai-prog-label" id="smartFixProgressText">正在扫描精修中…</div>
-          <div class="ai-prog-track">
-            <div class="ai-prog-bar" id="smartFixProgressBar" style="width: 12%"></div>
-          </div>
+            <div class="grid-2">
+              <label class="lbl"><span>影片背景（选填，翻译更准）</span><input class="field" id="aiContext" type="text" spellcheck="false" placeholder="例如：《沙丘2》，保罗与弗雷曼人对抗哈克南家族" /></label>
+              <label class="lbl"><span>人名与专有名词（选填，逗号分隔）</span><input class="field" id="aiGlossary" type="text" spellcheck="false" placeholder="Spice=香料, Paul=保罗, Harkonnen=哈克南" /></label>
+            </div>
+          </section>
         </div>
+        <div class="progress" id="aiProgress" hidden><div id="aiDial"></div><p></p></div>
       </div>
-      <div class="modal-footer">
-        <span style="margin-right:auto;font-size:11.5px;color:#8b9bb4;">💡 所有修改均支持按 <kbd>Ctrl+Z</kbd> 一键完整撤销</span>
-        <button class="btn btn-ghost" data-close="modalSmartFix">关闭</button>
-        <button class="btn btn-ai" id="btnRunSmartFix">🚀 一键傻瓜全自动精修</button>
+      <footer class="sheet-foot"><span class="foot-hint"><span id="aiHint"></span><em class="saved" id="aiSaved">配置会自动保存在本机</em></span><button class="btn btn-ghost" type="button" data-close>关闭</button><button class="btn btn-lg" type="button" id="btnSaveAi" data-tip="只保存 API Key、人设与术语，不执行生成">保存配置</button><button class="btn btn-primary btn-lg" type="button" id="btnAiRun" data-autofocus><svg class="i"><use href="#i-spark"/></svg><span>开始生成</span></button></footer>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="modal" id="modalExport" role="dialog" aria-modal="true" aria-labelledby="ttlExport" hidden>
+    <div class="sheet">
+      <header class="sheet-head"><h2 id="ttlExport">导出字幕</h2><span class="head-note" id="exportCount"></span><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body stack">
+        <div class="seg seg-fill seg-tall" id="exportLang" role="radiogroup" aria-label="导出语言"><button type="button" role="radio" data-value="bilingual">中英双语</button><button type="button" role="radio" data-value="zh_only">仅中文</button><button type="button" role="radio" data-value="en_only">仅英文</button></div>
+        <div class="outs">
+          <button class="out" type="button" id="expAss" data-autofocus><span class="out-ext num">ASS</span><span class="out-txt"><b>特效字幕 <em class="exp-lang">双语</em></b><small>保留字体、字宽、颜色、描边和柔边。PotPlayer、VLC、MPV 都能正常显示。</small></span><svg class="i"><use href="#i-export"/></svg></button>
+          <button class="out" type="button" id="expSup"><span class="out-ext num">SUP</span><span class="out-txt"><b>蓝光图形字幕</b><small>把样式压成图像，播放设备不装字体也完全一致。芝杜、Infuse、Plex、蓝光机适用。</small></span><svg class="i"><use href="#i-disc"/></svg></button>
+          <button class="out" type="button" id="expSrt"><span class="out-ext num">SRT</span><span class="out-txt"><b>通用字幕 <em class="exp-lang">双语</em></b><small>纯文本时间轴，兼容电视、手机和视频平台上传。</small></span><svg class="i"><use href="#i-export"/></svg></button>
+          <button class="out" type="button" id="expProject"><span class="out-ext num">JSON</span><span class="out-txt"><b>工程文件</b><small>字幕和样式一起保存，下次从“导入”打开继续编辑。</small></span><svg class="i"><use href="#i-disk"/></svg></button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Toast Notification -->
-  <div class="toast-container" id="toastContainer"></div>
+  <!-- SUP -->
+  <div class="modal" id="modalSup" role="dialog" aria-modal="true" aria-labelledby="ttlSup" hidden>
+    <div class="sheet sheet-mid">
+      <header class="sheet-head"><h2 id="ttlSup">蓝光 SUP 压制</h2><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body">
+        <div id="supForm" class="stack">
+          <div class="grid-3">
+            <label class="lbl"><span>分辨率</span><select class="field" id="supRes"><option value="1080p" selected>1080p（1920×1080）</option><option value="4k">4K UHD（3840×2160）</option><option value="720p">720p（1280×720）</option></select></label>
+            <label class="lbl"><span>帧率</span><select class="field" id="supFps"><option value="23.976" selected>23.976（电影、美剧）</option><option value="24">24.000（数字母版）</option><option value="25">25.000（PAL、英剧）</option><option value="29.97">29.97（NTSC）</option><option value="50">50.000</option><option value="59.94">59.94（高帧率）</option></select></label>
+            <label class="lbl"><span>当前字幕的语种</span><select class="field" id="supLang"><option value="bilingual" selected>中英双语</option><option value="zh_only">仅中文</option><option value="en_only">仅英文</option></select></label>
+          </div>
+          <div class="duo">
+            <button class="duo-card" type="button" id="btnSupCurrent" data-autofocus><svg class="i"><use href="#i-film"/></svg><b>压制当前字幕</b><small>用样式面板里的设置渲染 <em class="num" id="supCurrentCount"></em></small></button>
+            <button class="duo-card" type="button" id="btnSupFiles"><svg class="i"><use href="#i-layers"/></svg><b>批量转换 ASS 文件</b><small>可多选整季，按文件自带样式生成同名 SUP</small></button>
+          </div>
+        </div>
+        <div class="progress" id="supProgress" hidden><div id="supDial"></div><p></p></div>
+      </div>
+    </div>
+  </div>
 
-  <script src="app.js"></script>
+  <!-- Smart fix -->
+  <div class="modal" id="modalSmartFix" role="dialog" aria-modal="true" aria-labelledby="ttlFix" hidden>
+    <div class="sheet sheet-mid">
+      <header class="sheet-head"><h2 id="ttlFix">智能精修</h2><span class="head-note">先体检，再一次修好</span><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body">
+        <div class="diag">
+          <div class="diag-tile" id="diagOrphan"><b class="num">–</b><span>断句孤行</span><small></small></div>
+          <div class="diag-tile" id="diagSdh"><b class="num">–</b><span>听障音效</span><small></small></div>
+          <div class="diag-tile" id="diagOverlap"><b class="num">–</b><span>时间重叠</span><small></small></div>
+          <div class="diag-tile" id="diagMissing"><b class="num">–</b><span>待补译文</span><small></small></div>
+        </div>
+        <div class="fixes" id="fixForm">
+          <div class="fix"><div class="fix-txt"><b>断句孤行</b><small id="fixOrphanNote"></small></div><div class="seg" id="fixOrphan" role="radiogroup" aria-label="断句孤行"><button type="button" role="radio" data-value="merge">合并成一句</button><button type="button" role="radio" data-value="ai_split">AI 切分</button><button type="button" role="radio" data-value="none">不处理</button></div></div>
+          <label class="fix"><div class="fix-txt"><b>清除听障音效</b><small>去掉 (grunts)、[sighs]、♪ 等标注，纯音效的空行一并删除</small></div><span class="switch"><input type="checkbox" id="fixSdh" checked /></span></label>
+          <label class="fix"><div class="fix-txt"><b>修平时间重叠</b><small>修剪前后打架的时间，播放时不再上下跳闪</small></div><span class="switch"><input type="checkbox" id="fixOverlap" checked /></span></label>
+          <label class="fix"><div class="fix-txt"><b>AI 补全漏译</b><small>把仍缺中文或英文的对白自动翻译补齐，使用 AI 面板里的引擎</small></div><span class="switch"><input type="checkbox" id="fixFill" /></span></label>
+          <label class="fix fix-sub" id="fixSkipRow" hidden><div class="fix-txt"><b>跳过外语标注行</b><small>例如“(哈克南语)”“(弗雷曼语)”</small></div><span class="switch"><input type="checkbox" id="fixSkipForeign" checked /></span></label>
+          <label class="fix"><div class="fix-txt"><b>顺带清洗标点</b><small>按美剧规范：逗号改空格，去句末句号</small></div><span class="switch"><input type="checkbox" id="fixPunct" /></span></label>
+        </div>
+        <div class="progress" id="fixProgress" hidden><div id="fixDial"></div><p></p></div>
+      </div>
+      <footer class="sheet-foot"><span class="foot-hint">所有修改可以一次撤销。</span><button class="btn btn-ghost" type="button" data-close>关闭</button><button class="btn btn-primary btn-lg" type="button" id="btnFixRun" data-autofocus><svg class="i"><use href="#i-spark"/></svg><span>开始精修</span></button></footer>
+    </div>
+  </div>
+
+  <!-- Shortcuts -->
+  <div class="modal" id="modalKeys" role="dialog" aria-modal="true" aria-labelledby="ttlKeys" hidden>
+    <div class="sheet sheet-mid">
+      <header class="sheet-head"><h2 id="ttlKeys">快捷键</h2><span class="head-note">EasySub Studio v1.7</span><button class="icon-btn modal-x" type="button" data-close aria-label="关闭"><svg class="i"><use href="#i-close"/></svg></button></header>
+      <div class="sheet-body keys">
+        <section><h4>播放</h4>
+          <dl><dt><kbd>F2</kbd><kbd>空格</kbd></dt><dd>播放 / 暂停</dd><dt><kbd>F5</kbd></dt><dd>重播选中句</dd><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>后退 / 前进 1.5 秒</dd><dt><kbd>Shift</kbd><kbd>← →</kbd></dt><dd>微调 0.1 秒</dd><dt><kbd>PgUp</kbd><kbd>PgDn</kbd></dt><dd>上一句 / 下一句开头</dd><dt><kbd>T</kbd></dt><dd>专注画面</dd></dl></section>
+        <section><h4>打轴（打字时也有效）</h4>
+          <dl><dt><kbd>F3</kbd></dt><dd>设为开始</dd><dt><kbd>F4</kbd></dt><dd>设为结束，跳到下一句</dd><dt><kbd>[</kbd><kbd>]</kbd></dt><dd>同上，不在输入框时</dd><dt><kbd>Insert</kbd></dt><dd>在播放位置新建一句</dd><dt><kbd>Delete</kbd></dt><dd>删除选中句</dd></dl></section>
+        <section><h4>台词</h4>
+          <dl><dt><kbd>Enter</kbd></dt><dd>下一句同一栏</dd><dt><kbd>Shift</kbd><kbd>Enter</kbd></dt><dd>上一句同一栏</dd><dt><kbd>Tab</kbd></dt><dd>中文 → 英文 → 下一句</dd><dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>上下移动</dd><dt><kbd>Esc</kbd></dt><dd>离开输入框</dd><dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>在时间框里微调 0.05 秒</dd></dl></section>
+        <section><h4>文件与编辑</h4>
+          <dl><dt><kbd>Ctrl</kbd><kbd>K</kbd></dt><dd>命令面板</dd><dt><kbd>Ctrl</kbd><kbd>O</kbd></dt><dd>打开视频</dd><dt><kbd>Ctrl</kbd><kbd>I</kbd></dt><dd>导入字幕</dd><dt><kbd>Ctrl</kbd><kbd>S</kbd></dt><dd>导出</dd><dt><kbd>Ctrl</kbd><kbd>F</kbd></dt><dd>筛选台词</dd><dt><kbd>Ctrl</kbd><kbd>H</kbd></dt><dd>查找替换</dd><dt><kbd>Ctrl</kbd><kbd>Z</kbd><kbd>Y</kbd></dt><dd>撤销 / 重做</dd></dl></section>
+        <section><h4>时间轴</h4>
+          <dl><dt><kbd>滚轮</kbd></dt><dd>左右滚动</dd><dt><kbd>Ctrl</kbd><kbd>滚轮</kbd></dt><dd>缩放</dd><dt><kbd>双击</kbd></dt><dd>空白处新建，字幕上编辑</dd><dt><kbd>Alt</kbd><kbd>拖动</kbd></dt><dd>拖动时不吸附</dd></dl></section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div class="modal modal-top" id="modalPalette" role="dialog" aria-modal="true" aria-label="命令面板" hidden>
+    <div class="sheet palette">
+      <label class="pal-in"><svg class="i"><use href="#i-search"/></svg><input id="palInput" type="text" spellcheck="false" autocomplete="off" placeholder="搜索功能或台词，#12 跳到第 12 句，1:30 跳到时间" data-autofocus aria-controls="palList" /></label>
+      <div class="pal-list" id="palList" role="listbox"></div>
+      <footer class="pal-foot"><span><kbd>↑</kbd><kbd>↓</kbd>选择</span><span><kbd>Enter</kbd>执行</span><span><kbd>Esc</kbd>关闭</span></footer>
+    </div>
+  </div>
+
+  <!-- Confirm -->
+  <div class="modal" id="modalConfirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody" hidden>
+    <div class="sheet sheet-small">
+      <div class="sheet-body stack"><h3 id="confirmTitle"></h3><p class="lead" id="confirmBody"></p></div>
+      <footer class="sheet-foot"><button class="btn btn-ghost modal-x" type="button" data-close data-autofocus>取消</button><button class="btn" type="button" id="confirmOk"></button></footer>
+    </div>
+  </div>
+
+  <div class="curtain" id="dropCurtain" aria-hidden="true"><div class="curtain-card"><b id="dropTitle">松手载入</b><span id="dropNote">视频、音频或字幕文件</span></div></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="tip" id="tip" role="tooltip"></div>
+
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
