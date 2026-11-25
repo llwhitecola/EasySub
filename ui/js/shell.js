@@ -105,6 +105,7 @@ export function showTab(name) {
     }
   }
   setSample(name === "style");
+  emit("dock-tab", name);
   invalidate("list", "thumbs");
 }
 

@@ -13,6 +13,7 @@ import { bindSeg } from "./controls.js";
 import { lineRatio } from "./subs-render.js";
 import { isPlaying, replayCue, seekTo } from "./player.js";
 import { isMotion } from "./motion-path.js";
+import { resolveCueStyle } from "./cue-style.js";
 import { addCueAt, deleteCue, insertAfter, mergeNext, selectCue, setCueTime, splitCue, togglePos, translateCue } from "./cues.js";
 
 const ROW_H = 66;
@@ -143,7 +144,7 @@ function bindMeta(row, cue, idx) {
 /** The selected row shows how much of the 16:9 frame each line really fills. */
 function paintRulers(r, cue) {
   ["zh", "en"].forEach((lang, i) => {
-    const ratio = isTop(cue) ? 0 : lineRatio(cue[lang], state.style[lang]);
+    const ratio = isTop(cue) ? 0 : lineRatio(cue[lang], resolveCueStyle(state.style, cue)[lang]);
     r.rulers[i].style.transform = `scaleX(${Math.min(1, ratio).toFixed(4)})`;
     r.rulers[i].classList.toggle("over", ratio > 1);
     if (ratio > 1) r[lang].dataset.tip = `按当前样式会折成 ${Math.ceil(ratio)} 行，可以拆成两句`;

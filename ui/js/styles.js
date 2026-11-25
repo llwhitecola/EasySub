@@ -1,12 +1,15 @@
 /* Style tab: preset wall, layout controls, per-language type controls. */
 
 import { $, $$, byId, h, icon } from "./util.js";
-import { emit, invalidate, on, registerDraw, state } from "./store.js";
+import { emit, historyMark, invalidate, on, pushHistory, registerDraw, state } from "./store.js";
 import { bindSeg, makeFader, makeWell } from "./controls.js";
 import { confirmBox, toast, withBusy } from "./feedback.js";
 import { call } from "./bridge.js";
 import { drawCue, fitCanvas, fontStack, isFontInstalled } from "./subs-render.js";
 import { sceneHues } from "./scenes.js";
+import { inheritedCueStyle, isStaticNote, normalizeCueStyle, resolveCueStyle } from "./cue-style.js";
+import { isMotion } from "./motion-path.js";
+import { pause, seekTo } from "./player.js";
 
 const ZH_FONTS = [
   ["WenQuanYi Micro Hei", "文泉驿微米黑（美剧默认）"],
@@ -33,6 +36,11 @@ const THUMB_CUE = { zh: "双语字幕", en: "Bilingual" };
 const ui = { zh: {}, en: {} };
 let orderSeg;
 let langSeg;
+let scopeSeg;
+let scope = "global";
+let lastStyleEdit;
+const selectedCue = () => state.isDemo ? null : state.subtitles[state.selectedIdx];
+const scopedCue = () => scope === "cue" ? selectedCue() : null;
 
 /* ---------- preset ⇄ style ---------- */
 export function styleFromPreset(p) {
@@ -79,10 +87,59 @@ export function applyStyle(style, presetId = null) {
   emit("style", {});
 }
 
-function styleChanged() {
+function styleChanged(from) {
   state.dirty = true;
-  emit("style", {});
+  emit("style", { from });
   invalidate("presetstate");
+}
+
+function writeCueStyle(cue, override, field, from) {
+  const now = performance.now();
+  if (!field || lastStyleEdit?.cue !== cue || lastStyleEdit.field !== field ||
+      lastStyleEdit.mark !== historyMark() || now - lastStyleEdit.at > 850) {
+    pushHistory(override ? "修改本句样式" : "清除本句样式");
+  }
+  lastStyleEdit = field ? { cue, field, mark: historyMark(), at: now } : null;
+  if (override) cue.style_override = override;
+  else delete cue.style_override;
+  state.dirty = true;
+  emit("cue", { idx: state.selectedIdx, what: "style", from });
+}
+
+function setStyleField(key, value, lang, from) {
+  const cue = scopedCue();
+  if (!cue) {
+    const target = lang ? state.style[lang] : state.style;
+    target[key] = value;
+    styleChanged(from);
+    return;
+  }
+  const effective = resolveCueStyle(state.style, cue);
+  if ((lang ? effective[lang] : effective)[key] === value) return;
+  const inherited = inheritedCueStyle(state.style, cue);
+  const override = { ...cue.style_override };
+  if (lang) override[lang] = { ...override[lang] };
+  const patch = lang ? override[lang] : override;
+  if (value === (lang ? inherited[lang] : inherited)[key]) delete patch[key];
+  else patch[key] = value;
+  writeCueStyle(cue, normalizeCueStyle(override), lang ? `${lang}.${key}` : key, from);
+}
+
+export function stageMargin(idx) {
+  const cue = scopedCue();
+  if (!cue) return state.style.margin_v;
+  return state.subtitles[idx] === cue ? resolveCueStyle(state.style, cue).margin_v : null;
+}
+
+export function setStageMargin(idx, value) {
+  if (stageMargin(idx) !== null) setStyleField("margin_v", value, undefined, "stage");
+}
+
+function paintScope() {
+  const cue = scopedCue();
+  byId("cueStyleTarget").textContent = cue ? `第 ${cue.id} 句` : "";
+  byId("cueStyleTarget").hidden = !cue;
+  byId("btnCueStyleReset").hidden = !cue?.style_override;
 }
 
 /* ---------- preset wall ---------- */
@@ -176,9 +233,8 @@ function fontSelect(lang, fonts) {
     hint.textContent = missing ? "本机未安装此字体，预览用近似字体代替；在装有它的设备上会正常显示。" : "";
   };
   sel.addEventListener("change", () => {
-    state.style[lang].font = sel.value;
+    setStyleField("font", sel.value, lang);
     sync(sel.value);
-    styleChanged();
   });
   return { root: h("div", { class: "lbl" }, h("span", {}, "字体"), sel, hint), set: sync };
 }
@@ -186,24 +242,21 @@ function fontSelect(lang, fonts) {
 function buildLangCard(lang) {
   const root = byId(lang === "zh" ? "cardZh" : "cardEn");
   const u = ui[lang];
-  const bindNum = (field) => (v) => {
-    state.style[lang][field] = v;
-    styleChanged();
-  };
+  const bindField = (field) => (value) => setStyleField(field, value, lang);
   u.font = fontSelect(lang, lang === "zh" ? ZH_FONTS : EN_FONTS);
-  u.size = makeFader({ label: "字号", min: lang === "zh" ? 26 : 18, max: lang === "zh" ? 110 : 90, onInput: bindNum("size") });
-  u.scale_x = makeFader({ label: "字宽", unit: "%", min: 75, max: 115, onInput: bindNum("scale_x") });
-  u.outline = makeFader({ label: "描边", min: 0, max: 6, step: 0.1, onInput: bindNum("outline") });
-  u.shadow = makeFader({ label: "阴影", min: 0, max: 6, step: 0.1, onInput: bindNum("shadow") });
-  u.color = makeWell({ label: "文字", onInput: (v) => { state.style[lang].color = v; styleChanged(); } });
-  u.outline_color = makeWell({ label: "描边", onInput: (v) => { state.style[lang].outline_color = v; styleChanged(); } });
+  u.size = makeFader({ label: "字号", min: lang === "zh" ? 26 : 18, max: lang === "zh" ? 110 : 90, onInput: bindField("size") });
+  u.scale_x = makeFader({ label: "字宽", unit: "%", min: 75, max: 115, onInput: bindField("scale_x") });
+  u.outline = makeFader({ label: "描边", min: 0, max: 6, step: 0.1, onInput: bindField("outline") });
+  u.shadow = makeFader({ label: "阴影", min: 0, max: 6, step: 0.1, onInput: bindField("shadow") });
+  u.color = makeWell({ label: "文字", onInput: bindField("color") });
+  u.outline_color = makeWell({ label: "描边", onInput: bindField("outline_color") });
   for (const key of ["bold", "italic"]) {
     const btn = h("button", {
       class: "icon-btn", type: "button", "data-tip": key === "bold" ? "粗体" : "斜体", "aria-label": key === "bold" ? "粗体" : "斜体",
       onclick: () => {
-        state.style[lang][key] = !state.style[lang][key];
-        btn.setAttribute("aria-pressed", String(Boolean(state.style[lang][key])));
-        styleChanged();
+        const value = !resolveCueStyle(state.style, scopedCue())[lang][key];
+        setStyleField(key, value, lang);
+        btn.setAttribute("aria-pressed", String(value));
       },
     }, icon(key));
     u[key] = btn;
@@ -211,7 +264,7 @@ function buildLangCard(lang) {
   root.append(
     h(
       "header", {},
-      h("b", {}, lang === "zh" ? "中文" : "英文"),
+      u.title = h("b", {}, lang === "zh" ? "中文" : "英文"),
       h("div", { class: "lang-toggles" }, u.bold, u.italic),
     ),
     u.font.root,
@@ -221,7 +274,27 @@ function buildLangCard(lang) {
 }
 
 function syncControls() {
-  const s = state.style;
+  const selected = selectedCue();
+  if (!selected) scope = "global";
+  const cue = scopedCue();
+  const note = isStaticNote(cue);
+  const motion = isMotion(cue);
+  const s = resolveCueStyle(state.style, cue);
+  byId("styleScope").querySelector('[data-value="cue"]').hidden = !selected;
+  scopeSeg.set(scope);
+  byId("globalStylePresets").hidden = Boolean(cue);
+  byId("langSeg").hidden = Boolean(cue);
+  byId("orderSeg").hidden = motion;
+  byId("faderMargin").hidden = motion;
+  byId("faderGap").hidden = note || motion;
+  const marginLabel = note ? "距顶高度" : "距底高度";
+  $(".fader-head span", ui.margin.root).textContent = marginLabel;
+  $('input[type="range"]', ui.margin.root).setAttribute("aria-label", marginLabel);
+  $('input[type="number"]', ui.margin.root).setAttribute("aria-label", `${marginLabel}数值`);
+  byId("cardEn").hidden = note || motion;
+  byId("styleLangCards").classList.toggle("single", note || motion);
+  ui.zh.title.textContent = note || motion ? "标注文字" : "中文";
+  paintScope();
   orderSeg.set(s.order === "en_top" ? "en_top" : "zh_top");
   langSeg.set(state.langMode);
   byId("chkBox").checked = Boolean(s.box_mode);
@@ -229,7 +302,8 @@ function syncControls() {
   ui.gap.set(s.line_gap);
   ui.blur.set(s.blur);
   byId("faderBlur").classList.toggle("muted", Boolean(s.box_mode));
-  const base = activePreset() ? styleFromPreset(activePreset()) : null;
+  const preset = activePreset();
+  const base = cue ? inheritedCueStyle(state.style, cue) : preset ? styleFromPreset(preset) : null;
   ui.margin.setReset(base?.margin_v ?? null);
   ui.gap.setReset(base?.line_gap ?? null);
   ui.blur.setReset(base?.blur ?? null);
@@ -255,6 +329,24 @@ export function setLangMode(mode) {
 }
 
 export function initStyles() {
+  scopeSeg = bindSeg(byId("styleScope"), (value) => {
+    scope = value;
+    lastStyleEdit = null;
+    syncControls();
+    const cue = scopedCue();
+    if (!cue) return;
+    pause();
+    if (state.currentTimeMs < cue.start_ms || state.currentTimeMs >= cue.end_ms) {
+      seekTo(cue.start_ms + Math.min(20, Math.floor((cue.end_ms - cue.start_ms) / 2)));
+    }
+    invalidate("overlay");
+  });
+  byId("btnCueStyleReset").addEventListener("click", () => {
+    const cue = scopedCue();
+    if (!cue?.style_override) return;
+    writeCueStyle(cue, undefined);
+    syncControls();
+  });
   const grid = byId("presetGrid");
   const pick = (card) => {
     const p = state.presets.find((x) => x.id === card.dataset.id);
@@ -283,21 +375,19 @@ export function initStyles() {
   });
 
   orderSeg = bindSeg(byId("orderSeg"), (v) => {
-    state.style.order = v;
-    styleChanged();
+    setStyleField("order", v);
   });
   langSeg = bindSeg(byId("langSeg"), (v) => {
     state.langMode = v;
     emit("style", {});
   });
   byId("chkBox").addEventListener("change", (e) => {
-    state.style.box_mode = e.target.checked;
+    setStyleField("box_mode", e.target.checked);
     byId("faderBlur").classList.toggle("muted", e.target.checked);
-    styleChanged();
   });
 
   const fader = (slot, opt, key) => {
-    const f = makeFader({ ...opt, onInput: (v) => { state.style[key] = v; styleChanged(); } });
+    const f = makeFader({ ...opt, onInput: (v) => setStyleField(key, v) });
     byId(slot).append(f.root);
     return f;
   };
@@ -337,8 +427,25 @@ export function initStyles() {
   on("palette", () => invalidate("thumbs"));
   on("dpr", () => invalidate("thumbs"));
   on("style", (info) => {
-    if (info?.from === "stage") ui.margin.set(state.style.margin_v);
+    if (info?.from === "stage" && !scopedCue()) ui.margin.set(state.style.margin_v);
     invalidate("presetstate");
+  });
+  on("select", syncControls);
+  on("cues", syncControls);
+  on("dock-tab", (tab) => {
+    if (tab === "style" || scope === "global") return;
+    scope = "global";
+    lastStyleEdit = null;
+    syncControls();
+  });
+  on("cue", ({ idx, what, from }) => {
+    const cue = scopedCue();
+    if (!cue || idx !== state.selectedIdx) return;
+    if (what === "pos") syncControls();
+    if (what === "style") {
+      paintScope();
+      if (from === "stage") ui.margin.set(resolveCueStyle(state.style, cue).margin_v);
+    }
   });
   new ResizeObserver(() => invalidate("thumbs")).observe(grid);
   syncControls();

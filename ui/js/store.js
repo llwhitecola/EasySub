@@ -1,6 +1,7 @@
 /* Application state, events, frame scheduler and undo history. */
 
 import { isMotion, normalizeMotion } from "./motion-path.js";
+import { normalizeCueStyle } from "./cue-style.js";
 
 export const DEMO_SUBTITLES = [
   { id: 1, start_ms: 600, end_ms: 3800, zh: "以前做双语字幕总要记一堆复杂代码", en: "Making bilingual subs used to mean complex tags" },
@@ -12,7 +13,7 @@ export const DEMO_SUBTITLES = [
 export const DEFAULT_STYLE = {
   order: "zh_top",
   margin_v: 15,
-  line_gap: 8,
+  line_gap: 7,
   blur: 2.0,
   ycbcr_matrix: "None",
   box_mode: false,
@@ -148,6 +149,11 @@ export function normalizeCues(list) {
         zh: String(c.zh ?? "").replace(/\s*\r?\n\s*/g, " "),
         en: String(c.en ?? "").replace(/\s*\r?\n\s*/g, " "),
       };
+      if (cue.style_override !== undefined) {
+        const override = normalizeCueStyle(cue.style_override);
+        if (override) cue.style_override = override;
+        else delete cue.style_override;
+      }
       if (cue.motion !== undefined) {
         const path = normalizeMotion(cue.motion);
         if (path.length > 1) {
@@ -290,7 +296,8 @@ export function clearDemo() {
 }
 
 const sameCue = (a, b) => ["zh", "en", "start_ms", "end_ms"].every((k) => a[k] === b[k]) &&
-  isTop(a) === isTop(b) && JSON.stringify(a.motion) === JSON.stringify(b.motion);
+  isTop(a) === isTop(b) && JSON.stringify(a.motion) === JSON.stringify(b.motion) &&
+  JSON.stringify(a.style_override) === JSON.stringify(b.style_override);
 export const sameCues = (a, b) => a.length === b.length && a.every((c, i) => sameCue(c, b[i]));
 
 /** Replace all cues as one undoable step. */

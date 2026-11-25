@@ -25,7 +25,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，紧凑行距、93%窄字宽与柔边羽化(\\blur2)",
         "order": "zh_top",
         "margin_v": 15,
-        "line_gap": 8,
+        "line_gap": 7,
         "blur": 2.0,
         "ycbcr_matrix": "None",
         "box_mode": False,
@@ -1552,6 +1552,40 @@ def hex_to_ass_color(hex_color: str, opacity: float = 1.0) -> str:
     return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
 
 
+def _cue_style_override(item: dict[str, Any]) -> dict[str, Any]:
+    source = item.get("style_override")
+    if not isinstance(source, dict):
+        return {}
+    patch: dict[str, Any] = {}
+    if source.get("order") in ("zh_top", "en_top"):
+        patch["order"] = source["order"]
+    if isinstance(source.get("box_mode"), bool):
+        patch["box_mode"] = source["box_mode"]
+    for key in ("margin_v", "line_gap", "blur"):
+        value = source.get(key)
+        if type(value) in (int, float) and math.isfinite(value):
+            patch[key] = value
+    for lang in ("zh", "en"):
+        cfg = source.get(lang)
+        if not isinstance(cfg, dict):
+            continue
+        fields = {
+            key: cfg[key] for key in ("size", "scale_x", "outline", "shadow")
+            if type(cfg.get(key)) in (int, float) and math.isfinite(cfg[key])
+        }
+        fields.update({key: cfg[key] for key in ("bold", "italic") if isinstance(cfg.get(key), bool)})
+        fields.update({
+            key: cfg[key] for key in ("color", "outline_color")
+            if isinstance(cfg.get(key), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", cfg[key])
+        })
+        font = cfg.get("font")
+        if isinstance(font, str) and font.strip() and "\r" not in font and "\n" not in font:
+            fields["font"] = font
+        if fields:
+            patch[lang] = fields
+    return patch
+
+
 def export_srt(
     subtitles: list[dict[str, Any]],
     order: str = "zh_top",
@@ -1573,7 +1607,10 @@ def export_srt(
         elif lang_mode == "en_only":
             lines = [en] if en else []
         else:
-            ordered = [zh, en] if order == "zh_top" else [en, zh]
+            override = item.get("style_override")
+            local_order = override.get("order") if isinstance(override, dict) else None
+            item_order = local_order if local_order in ("zh_top", "en_top") else order
+            ordered = [zh, en] if item_order == "zh_top" else [en, zh]
             lines = [ln for ln in ordered if ln]
 
         if not lines:
@@ -1627,31 +1664,19 @@ def export_ass(
     title: str = "Default Aegisub file",
 ) -> str:
     """
-    Compile subtitles + visual style configuration into a standard 1920x1080 ASS v4+ file!
-    Supports exact subtitle-group style fields (ScaleX, blur, fsvp, YCbCr Matrix, custom style names)
-    with inline {\\rSecondary} reset so multi-line wrapping never overlaps.
+    Compile subtitles, per-cue styles and tracked positions into a 1920x1080 ASS file.
     """
-    order = style.get("order", "zh_top")
-    margin_v = int(style.get("margin_v", 15))
-    line_gap = int(round(float(style.get("line_gap", 4))))
-    blur_val = float(style.get("blur", 2.0))
     ycbcr_matrix = str(style.get("ycbcr_matrix", "None"))
-    box_mode = bool(style.get("box_mode", False))
-    box_color = style.get("box_color", "#000000")
-    box_opacity = float(style.get("box_opacity", 0.6))
-
-    border_style = 3 if box_mode else 1
-
-    zh_cfg = style.get("zh", {})
-    en_cfg = style.get("en", {})
-    zh_style_name = str(zh_cfg.get("style_name") or "默认文泉").replace(",", " ")
-    en_style_name = str(en_cfg.get("style_name") or "Eng - ITC").replace(",", " ")
-    zh_size_val = float(zh_cfg.get("size", 70))
-    en_size_val = float(en_cfg.get("size", 47))
-    zh_scale_x = float(zh_cfg.get("scale_x", 93))
-    en_scale_x = float(en_cfg.get("scale_x", 95))
-    zh_margin_lr = int(zh_cfg.get("margin_l", 10)) + int(zh_cfg.get("margin_r", 11))
-    en_margin_lr = int(en_cfg.get("margin_l", 15)) + int(en_cfg.get("margin_r", 15))
+    base_zh = style.get("zh", {})
+    base_en = style.get("en", {})
+    base_zh_name = str(base_zh.get("style_name") or "默认文泉").replace(",", " ")
+    base_en_name = str(base_en.get("style_name") or "Eng - ITC").replace(",", " ")
+    base_note_name = "注释-雅黑"
+    base_note = {
+        "font": "微软雅黑", "size": 75, "color": base_zh.get("color", "#B7B7B7"),
+        "outline": 1, "shadow": 1, "scale_x": 90, "margin_l": 10, "margin_r": 10,
+    }
+    note_layout = {**style, "margin_v": 40, "box_mode": False, "blur": 0 if style.get("box_mode") else style.get("blur", 2.0)}
 
     def fmt_num(val: float) -> str:
         rounded = round(val, 2)
@@ -1668,12 +1693,15 @@ def export_ass(
                 width_est += fsize * 0.52 * sx_factor
         return max(1, int(math.ceil(width_est / avail_w)))
 
-    def make_ass_style_line(name: str, cfg: dict[str, Any], mv_offset: int = 0) -> str:
+    def style_fields(cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2) -> str:
         font = str(cfg.get("font", "WenQuanYi Micro Hei")).replace(",", " ")
         size = int(round(float(cfg.get("size", 70))))
         pri_color = hex_to_ass_color(cfg.get("color", "#B7B7B7"), 1.0)
         sec_color = hex_to_ass_color(cfg.get("secondary_color", "#000000"), 1.0)
+        box_mode = bool(layout.get("box_mode", False))
         if box_mode:
+            box_color = layout.get("box_color", "#000000")
+            box_opacity = float(layout.get("box_opacity", 0.6))
             out_color = hex_to_ass_color(box_color, box_opacity)
             back_color = hex_to_ass_color(box_color, box_opacity)
             outline = max(6.0, float(cfg.get("outline", 2.0)) * 3.0)
@@ -1691,64 +1719,69 @@ def export_ass(
         scale_x = int(round(float(cfg.get("scale_x", 100))))
         margin_l = int(cfg.get("margin_l", 10))
         margin_r = int(cfg.get("margin_r", 11))
-        mv = max(0, margin_v + mv_offset)
+        mv = max(0, int(layout.get("margin_v", 15)))
         return (
-            f"Style: {name},{font},{size},{pri_color},{sec_color},{out_color},{back_color},"
-            f"{bold},{italic},0,0,{scale_x},100,0,0,{border_style},{fmt_num(outline)},{fmt_num(shadow)},"
-            f"2,{margin_l},{margin_r},{mv},1"
+            f"{font},{size},{pri_color},{sec_color},{out_color},{back_color},"
+            f"{bold},{italic},0,0,{scale_x},100,0,0,{3 if box_mode else 1},{fmt_num(outline)},{fmt_num(shadow)},"
+            f"{alignment},{margin_l},{margin_r},{mv},1"
         )
 
-    zh_style_line = make_ass_style_line(zh_style_name, zh_cfg, mv_offset=0)
-    en_style_line = make_ass_style_line(en_style_name, en_cfg, mv_offset=0)
-    top_note_style_name = "注释-雅黑"
-    top_note_color = hex_to_ass_color(zh_cfg.get("color", "#B7B7B7"), 1.0)
-    top_note_style_line = (
-        f"Style: {top_note_style_name},微软雅黑,75,{top_note_color},&H00000000,&H00000000,&H00000000,"
-        f"-1,0,0,0,90,100,0,0,1,1,1,8,10,10,40,1"
-    )
+    defaults = [
+        (base_zh_name, style_fields(base_zh, style)),
+        (base_en_name, style_fields(base_en, style)),
+        (base_note_name, style_fields(base_note, note_layout, alignment=8)),
+    ]
+    style_lines = [f"Style: {name},{fields}" for name, fields in defaults]
+    names_by_fields = {fields: name for name, fields in defaults}
+    used_names = {name.casefold() for name, _ in defaults}
+    next_style_id = 1
 
-    header = f"""[Script Info]
-; Script generated by EasySub Studio (傻瓜双语字幕工坊)
-Title: {title}
-ScriptType: v4.00+
-WrapStyle: 0
-ScaledBorderAndShadow: yes
-YCbCr Matrix: {ycbcr_matrix}
-PlayResX: 1920
-PlayResY: 1080
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-{zh_style_line}
-{en_style_line}
-{top_note_style_line}
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+    def style_name(cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2) -> str:
+        nonlocal next_style_id
+        fields = style_fields(cfg, layout, alignment)
+        if fields in names_by_fields:
+            return names_by_fields[fields]
+        while True:
+            name = f"EasySub-Line-{next_style_id}"
+            next_style_id += 1
+            if name.casefold() not in used_names:
+                break
+        used_names.add(name.casefold())
+        names_by_fields[fields] = name
+        style_lines.append(f"Style: {name},{fields}")
+        return name
 
     def esc_ass(txt: str) -> str:
         return txt.replace("\r\n", " ").replace("\n", " ").strip()
-
-    blur_tag = f"\\blur{fmt_num(blur_val)}" if (not box_mode and blur_val > 0) else ""
-    top_prefix = f"{{{blur_tag}}}" if blur_tag else ""
-    bot_mv = max(0, margin_v)
-    box_pad = 12 if box_mode else 0
 
     events: list[str] = []
     for item in subtitles:
         zh = esc_ass(item.get("zh") or "")
         en = esc_ass(item.get("en") or "")
-        is_top_note = item.get("pos") == "top"
+        tracked = bool(item.get("motion"))
+        is_top_note = item.get("pos") == "top" and not tracked
+        override = _cue_style_override(item)
+        layout = note_layout if is_top_note else style
+        if override:
+            layout = {**layout, **override}
+        order = layout.get("order", "zh_top")
+        bot_mv = max(0, int(layout.get("margin_v", 15)))
+        line_gap = int(round(float(layout.get("line_gap", 4))))
+        box_mode = bool(layout.get("box_mode"))
+        box_pad = 12 if box_mode else 0
+        blur_val = float(layout.get("blur", 2.0))
+        blur_tag = f"\\blur{fmt_num(blur_val)}" if not box_mode and blur_val > 0 else ""
+        top_prefix = f"{{{blur_tag}}}" if blur_tag else ""
 
-        if item.get("motion"):
+        if tracked:
             if zh and lang_mode != "en_only":
+                name = style_name({**base_zh, **override.get("zh", {})}, layout) if override else base_zh_name
                 for t1, t2, p1, p2 in _motion_segments(item):
                     start, end = format_ass_timestamp(t1), format_ass_timestamp(t2)
                     if start == end:
                         continue
                     tag = f"\\pos({p1})" if p1 == p2 else f"\\move({p1},{p2})"
-                    events.append(f"Dialogue: 3,{start},{end},{zh_style_name},,0,0,0,,{{\\an2{tag}{blur_tag}}}{zh}")
+                    events.append(f"Dialogue: 3,{start},{end},{name},,0,0,0,,{{\\an2{tag}{blur_tag}}}{zh}")
             continue
 
         start_str = format_ass_timestamp(item["start_ms"])
@@ -1762,11 +1795,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             elif lang_mode == "en_only":
                 parts_top = [en] if en else []
             if parts_top:
+                name = style_name({**base_note, **override.get("zh", {})}, layout, alignment=8) if override else base_note_name
                 joined_top = "\\N".join(parts_top)
                 events.append(
-                    f"Dialogue: 2,{start_str},{end_str},{top_note_style_name},,0,0,0,,{top_prefix}{joined_top}"
+                    f"Dialogue: 2,{start_str},{end_str},{name},,0,0,0,,{top_prefix}{joined_top}"
                 )
             continue
+
+        zh_cfg = {**base_zh, **override.get("zh", {})} if override else base_zh
+        en_cfg = {**base_en, **override.get("en", {})} if override else base_en
+        zh_style_name = style_name(zh_cfg, layout) if override else base_zh_name
+        en_style_name = style_name(en_cfg, layout) if override else base_en_name
 
         if lang_mode == "zh_only":
             if not zh:
@@ -1778,6 +1817,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
         else:
             if zh and en:
+                zh_size_val = float(zh_cfg.get("size", 70))
+                en_size_val = float(en_cfg.get("size", 47))
+                zh_scale_x = float(zh_cfg.get("scale_x", 93))
+                en_scale_x = float(en_cfg.get("scale_x", 95))
+                zh_margin_lr = int(zh_cfg.get("margin_l", 10)) + int(zh_cfg.get("margin_r", 11))
+                en_margin_lr = int(en_cfg.get("margin_l", 15)) + int(en_cfg.get("margin_r", 15))
                 # Emit independent Layer 1 (upper) + Layer 0 (lower) events so libass/VSFilter/PGS
                 # honor exact 1px positive, zero, or negative line_gap without collision flipping!
                 if order == "zh_top":
@@ -1827,4 +1872,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             elif en:
                 events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{top_prefix}{en}")
 
+    styles_text = "\n".join(style_lines)
+    header = f"""[Script Info]
+; Script generated by EasySub Studio (傻瓜双语字幕工坊)
+Title: {title}
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: {ycbcr_matrix}
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+{styles_text}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
     return header + "\n".join(events) + "\n"

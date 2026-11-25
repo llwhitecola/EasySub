@@ -11,6 +11,7 @@
 
 import { hexToRgba } from "./util.js";
 import { trimmed } from "./store.js";
+import { resolveCueStyle } from "./cue-style.js";
 
 const PLAY_W = 1920;
 const PLAY_H = 1080;
@@ -242,6 +243,7 @@ const union = (a, b) =>
  * zoom > 1 magnifies around the bottom centre: used by the preset thumbnails.
  */
 export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 1, anchor }) {
+  style = resolveCueStyle(style, cue);
   const k = (H / PLAY_H) * zoom;
   const blur = style.box_mode ? 0 : num(style.blur, 0);
   let zh = trimmed(cue.zh);
@@ -264,11 +266,8 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
     return drawEvent(
       ctx,
       text,
-      {
-        font: "Microsoft YaHei", size: 75, color: style.zh?.color || "#B7B7B7", outline_color: "#000000",
-        back_color: "#000000", outline: 1, shadow: 1, scale_x: 90, margin_l: 10, margin_r: 10, bold: true,
-      },
-      { W, H, k, blur, box: null, marginV: 40, top: true },
+      style.zh,
+      { W, H, k, blur, box, marginV: Math.max(0, num(style.margin_v, 40)), top: true },
     );
   }
 

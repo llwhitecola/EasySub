@@ -233,6 +233,7 @@
 .fader-row .muted { opacity: 0.4; }
 
 .lang-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.lang-cards.single { grid-template-columns: 1fr; }
 .lang-card { display: flex; flex-direction: column; gap: 11px; min-width: 0; }
 .lang-card > header { display: flex; align-items: center; height: 28px; }
 .lang-card > header b { font-weight: 500; }

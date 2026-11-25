@@ -7,6 +7,7 @@ import { initScenes, setScene, setScenesActive } from "./scenes.js";
 import { startHero } from "./hero.js";
 import { initMotion } from "./motion.js";
 import { isMotion, motionAt, pictureRect } from "./motion-path.js";
+import { setStageMargin, stageMargin } from "./styles.js";
 
 const overlay = byId("subCanvas");
 const sceneCanvas = byId("scene");
@@ -26,18 +27,19 @@ function paintOverlay() {
   const topIdx = cueAt(state.currentTimeMs, true);
   const idx = cueAt(state.currentTimeMs, false);
   const opts = { W, H, style: state.style, langMode: state.langMode };
+  const showMotion = state.hasRealVideo && state.langMode !== "en_only" && motionCues.some(activeMotion);
   if (topIdx >= 0) drawCue(ctx, { ...opts, cue: state.subtitles[topIdx] });
 
   const cue = idx >= 0 ? state.subtitles[idx] : null;
   let box = null;
   if (cue && (trimmed(cue.zh) || trimmed(cue.en))) {
     box = drawCue(ctx, { ...opts, cue });
-  } else if (showSample && topIdx < 0) {
+  } else if (showSample && topIdx < 0 && !showMotion) {
     ctx.globalAlpha = 0.9;
     box = drawCue(ctx, { ...opts, cue: SAMPLE });
     ctx.globalAlpha = 1;
   }
-  if (motionCues.length && state.hasRealVideo && state.langMode !== "en_only") {
+  if (showMotion) {
     const p = pictureRect(byId("video"), W, H);
     if (p) {
       ctx.save();
@@ -82,18 +84,21 @@ function placeFrame(box, dpr, idx) {
 function bindFrame() {
   const label = $("b", frame);
   const paint = () => {
-    label.textContent = `距底 ${state.style.margin_v}`;
+    const margin = stageMargin(frameIdx);
+    label.textContent = margin === null ? "" : `距底 ${margin}`;
   };
   frame.addEventListener("pointerenter", paint);
   frame.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    const margin = stageMargin(frameIdx);
+    if (margin === null) return;
     e.preventDefault();
-    grab = { y: e.clientY, from: state.style.margin_v, moved: false };
+    grab = { y: e.clientY, from: margin, idx: frameIdx, moved: false };
     frame.setPointerCapture(e.pointerId);
     frame.classList.add("drag");
   });
   frame.addEventListener("pointermove", (e) => {
-    if (grab && !(e.buttons & 1)) end();
+    if (grab && (!(e.buttons & 1) || grab.idx !== frameIdx)) end();
     if (!grab) return;
     const unit = 1080 / Math.max(1, overlay.clientHeight);
     const dy = grab.y - e.clientY;
@@ -104,10 +109,8 @@ function bindFrame() {
     const safe = Math.abs(v - 54) < 5 && !e.altKey;
     if (safe) v = 54;
     frame.classList.toggle("snap", safe);
-    if (v === state.style.margin_v) return;
-    state.style.margin_v = v;
-    state.dirty = true;
-    emit("style", { from: "stage" });
+    if (v === stageMargin(frameIdx)) return;
+    setStageMargin(frameIdx, v);
     label.textContent = safe ? "距底 54 · 安全框" : `距底 ${v}`;
   });
   const end = () => {

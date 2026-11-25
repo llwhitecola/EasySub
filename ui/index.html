@@ -280,6 +280,16 @@
           <!-- 样式 -->
           <div class="pane pane-style" data-tabpane="style" hidden>
             <section class="sp">
+              <div class="sp-row">
+                <div class="seg" id="styleScope" role="radiogroup" aria-label="样式应用范围">
+                  <button type="button" role="radio" data-value="global">全局样式</button>
+                  <button type="button" role="radio" data-value="cue" hidden>本句样式</button>
+                </div>
+                <b class="sp-now" id="cueStyleTarget" hidden></b>
+                <button class="btn btn-ghost btn-sm" id="btnCueStyleReset" type="button" hidden>清除本句样式</button>
+              </div>
+            </section>
+            <section class="sp" id="globalStylePresets">
               <header class="sp-head">
                 <h4>模板</h4>
                 <span class="sp-now"><b id="presetNow"></b><em id="presetModified" hidden>已调整</em></span>
@@ -308,7 +318,7 @@
 
             <section class="sp">
               <header class="sp-head"><h4>字形</h4></header>
-              <div class="lang-cards">
+              <div class="lang-cards" id="styleLangCards">
                 <div class="lang-card" id="cardZh"></div>
                 <div class="lang-card" id="cardEn"></div>
               </div>
