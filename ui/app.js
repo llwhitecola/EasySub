@@ -8,28 +8,28 @@ const DEMO_SUBTITLES = [
     start_ms: 600,
     end_ms: 3800,
     zh: "以前做双语字幕总要记一堆复杂代码",
-    en: "Making bilingual subtitles used to require memorizing complex tags",
+    en: "Making bilingual subs used to mean complex tags",
   },
   {
     id: 2,
     start_ms: 4200,
     end_ms: 7800,
-    zh: "现在点一下右侧卡片，就能切换电影级双语样式",
-    en: "Now with one click on the right, you get cinema-grade bilingual styles",
+    zh: "现在点一下右侧卡片 就能切换电影级双语样式",
+    en: "Now one click switches to cinema-grade bilingual styles",
   },
   {
     id: 3,
     start_ms: 8200,
     end_ms: 11800,
-    zh: "播放时按 F3 设开始、按 F4 设结束并自动跳下一句",
-    en: "Press F3 for start and F4 for end while playing to time lines effortlessly",
+    zh: "播放时按 F3 设开始 按 F4 设结束并跳下一句",
+    en: "Press F3 for start and F4 for end while playing",
   },
   {
     id: 4,
     start_ms: 12200,
     end_ms: 16500,
-    zh: "或者拖入视频点击上方 AI 按钮，全自动听写加翻译！",
-    en: "Or drop a video in and click AI above for automatic transcription and translation!",
+    zh: "拖入视频点击上方 AI 按钮 全自动听写加翻译!",
+    en: "Drop a video in and click AI for auto transcription!",
   },
 ];
 
@@ -109,7 +109,7 @@ const state = {
   },
 
   waveform: createDemoWaveform(18, 25),
-  pxPerSec: 100, // timeline zoom
+  pxPerSec: 72, // timeline zoom (fits 18s demo comfortably end-to-end)
 
   undoStack: [],
   redoStack: [],
@@ -573,15 +573,15 @@ function renderPresetCards() {
       ? hexToRgba(p.box_color, p.box_opacity)
       : "linear-gradient(180deg, #0d1526 0%, #060911 100%)";
 
+    card.title = p.desc || p.name;
     card.innerHTML = `
       ${p.is_custom ? '<button class="btn-del-preset" title="删除此自定义模板">✕</button>' : ""}
       ${isActive ? '<span class="preset-badge-active">当前</span>' : ""}
       <div class="preset-preview-mini" style="background:${boxBg}">
-        <div style="color:${firstColor};font-weight:700;font-size:12px;text-shadow:0 1px 2px #000;">${topIsZh ? "美剧双语字幕预览" : "Cinema Subtitle"}</div>
-        <div style="color:${secondColor};font-size:10px;text-shadow:0 1px 2px #000;">${topIsZh ? "Cinema Subtitle" : "美剧双语字幕预览"}</div>
+        <div style="color:${firstColor};font-weight:700;font-size:11px;text-shadow:0 1px 2px #000;">${topIsZh ? "双语字幕" : "Subtitle"}</div>
+        <div style="color:${secondColor};font-size:9.5px;text-shadow:0 1px 2px #000;">${topIsZh ? "Subtitle" : "双语字幕"}</div>
       </div>
       <div class="preset-name">${p.name}</div>
-      <div class="preset-desc">${p.desc}</div>
     `;
     const delBtn = card.querySelector(".btn-del-preset");
     if (delBtn) {
@@ -790,12 +790,12 @@ function drawWaveform() {
 
   // Top ruler band
   ctx.fillStyle = "#0b1120";
-  ctx.fillRect(0, 0, width, 18);
-  ctx.fillStyle = "rgba(148, 163, 184, 0.12)";
-  ctx.fillRect(0, 18, width, 1);
+  ctx.fillRect(0, 0, width, 20);
+  ctx.fillStyle = "rgba(148, 163, 184, 0.14)";
+  ctx.fillRect(0, 20, width, 1);
 
   // Center zero-axis line
-  const midY = 53;
+  const midY = 54;
   ctx.strokeStyle = "rgba(56, 189, 248, 0.12)";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -806,19 +806,19 @@ function drawWaveform() {
   // Time ticks
   const stepSec = effectivePxPerSec >= 110 ? 1 : effectivePxPerSec >= 55 ? 2 : 5;
   ctx.font = "10px Consolas, monospace";
-  ctx.fillStyle = "#64748b";
+  ctx.fillStyle = "#8b9bb4";
   ctx.strokeStyle = "rgba(148, 163, 184, 0.08)";
 
   for (let s = 0; s <= totalSec; s += stepSec) {
     const x = Math.round(s * effectivePxPerSec) + 0.5;
     ctx.beginPath();
-    ctx.moveTo(x, 15);
+    ctx.moveTo(x, 16);
     ctx.lineTo(x, height);
     ctx.stroke();
 
     const mins = Math.floor(s / 60);
     const secs = s % 60;
-    ctx.fillText(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`, x + 4, 12.5);
+    ctx.fillText(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`, x + 4, 13.5);
   }
 
   // Symmetrical gradient audio waveform
@@ -868,22 +868,22 @@ function drawWaveform() {
     ctx.lineWidth = isSel ? 1.5 : 1;
 
     ctx.beginPath();
-    ctx.roundRect(x1, 22, w, 58, 5);
+    ctx.roundRect(x1, 24, w, 56, 5);
     ctx.fill();
     ctx.stroke();
 
     // Top accent strip
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(x1, 22, w, 58, 5);
+    ctx.roundRect(x1, 24, w, 56, 5);
     ctx.clip();
     ctx.fillStyle = isSel ? "#3b82f6" : isTop ? "#06b6d4" : "rgba(139, 92, 246, 0.55)";
-    ctx.fillRect(x1, 22, w, 3);
+    ctx.fillRect(x1, 24, w, 3);
 
     if (isSel) {
       ctx.fillStyle = "#93c5fd";
-      ctx.fillRect(x1, 22, 3, 58);
-      ctx.fillRect(x2 - 3, 22, 3, 58);
+      ctx.fillRect(x1, 24, 3, 56);
+      ctx.fillRect(x2 - 3, 24, 3, 56);
     }
 
     if (w > 28) {
@@ -891,32 +891,32 @@ function drawWaveform() {
       ctx.font = "bold 11px 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif";
       const prefix = isTop ? `[顶#${cue.id}] ` : `#${cue.id} `;
       const label = cue.zh || cue.en || "";
-      ctx.fillText(`${prefix}${label}`, x1 + 6, 40);
+      ctx.fillText(`${prefix}${label}`, x1 + 6, 42);
       if (cue.zh && cue.en) {
         ctx.fillStyle = "#cbd5e1";
         ctx.font = "10px 'Segoe UI', sans-serif";
-        ctx.fillText(cue.en, x1 + 6, 56);
+        ctx.fillText(cue.en, x1 + 6, 58);
       }
     }
     ctx.restore();
   });
 
-  // Glowing Playhead needle + live timecode badge
+  // Translucent Playhead needle + ruler-contained timecode pill
   const playX = (state.currentTimeMs / 1000) * effectivePxPerSec;
-  ctx.strokeStyle = "#f43f5e";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(244, 63, 94, 0.72)";
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(playX, 0);
+  ctx.moveTo(playX, 18);
   ctx.lineTo(playX, height);
   ctx.stroke();
 
   const tcText = formatDisplayTime(state.currentTimeMs);
-  ctx.font = "bold 10px Consolas, monospace";
+  ctx.font = "bold 9.5px Consolas, monospace";
   const badgeW = ctx.measureText(tcText).width + 10;
   const badgeX = Math.max(2, Math.min(width - badgeW - 2, playX - badgeW / 2));
   ctx.fillStyle = "#e11d48";
   ctx.beginPath();
-  ctx.roundRect(badgeX, 2, badgeW, 14, 4);
+  ctx.roundRect(badgeX, 2, badgeW, 15, 4);
   ctx.fill();
   ctx.fillStyle = "#ffffff";
   ctx.fillText(tcText, badgeX + 5, 12.5);
@@ -1159,13 +1159,23 @@ function syncSingleRowTimeInputs(idx) {
   }
 }
 
+const ROW_ICONS = {
+  play: `<svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>`,
+  topPin: `<svg viewBox="0 0 24 24"><path d="M5 4h14M12 20V8m-5 5 5-5 5 5"/></svg>`,
+  trans: `<svg viewBox="0 0 24 24"><path d="m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"/></svg>`,
+  split: `<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>`,
+  insert: `<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`,
+  merge: `<svg viewBox="0 0 24 24"><path d="M8 6h13M8 18h13M3 6v12m0 0 3-3m-3 3-3-3"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>`,
+};
+
 function checkLineLengthWarn(zhInp, enInp) {
   const zhLen = (zhInp.value || "").replace(/\s+/g, "").length;
   const enLen = (enInp.value || "").trim().length;
-  zhInp.classList.toggle("too-long", zhLen > 22);
-  zhInp.title = zhLen > 22 ? `当前中文 ${zhLen} 字偏长，建议点击右侧 ✂️ 拆成两句` : "";
-  enInp.classList.toggle("too-long", enLen > 58);
-  enInp.title = enLen > 58 ? `当前英文 ${enLen} 字符偏长，建议点击右侧 ✂️ 拆成两句` : "";
+  zhInp.classList.toggle("too-long", zhLen > 28);
+  zhInp.title = zhLen > 28 ? `当前中文 ${zhLen} 字，单行可能放不下，建议点右侧剪刀图标拆成两句` : "";
+  enInp.classList.toggle("too-long", enLen > 84);
+  enInp.title = enLen > 84 ? `当前英文 ${enLen} 字符，单行可能放不下，建议点右侧剪刀图标拆成两句` : "";
 }
 
 function renderTable() {
@@ -1200,13 +1210,13 @@ function renderTable() {
         <input type="text" class="sub-input en-inp" placeholder="Enter English subtitle…" />
       </div>
       <div class="row-ops">
-        <button class="op-btn act-play" title="定位并播放本句">▶</button>
-        <button class="op-btn act-pos ${isTop ? "top-active" : ""}" title="切换位置：底部对白 ⇄ 顶部屏幕注释 (注释-雅黑)">${isTop ? "顶" : "📍"}</button>
-        <button class="op-btn act-trans" title="AI 单句互译补全 (自动应用专有名词表)">🌐</button>
-        <button class="op-btn act-split" title="智能拆句：将过长的本句按比例一分为二">✂️</button>
-        <button class="op-btn act-insert" title="在下方插入新行">➕</button>
-        <button class="op-btn act-merge" title="与下一句合并">🔗</button>
-        <button class="op-btn danger act-del" title="删除本句">🗑</button>
+        <button class="op-btn act-play" title="定位并播放本句">${ROW_ICONS.play}</button>
+        <button class="op-btn act-pos ${isTop ? "top-active" : ""}" title="切换位置：底部对白 ⇄ 顶部屏幕注释 (注释-雅黑)">${isTop ? "顶" : ROW_ICONS.topPin}</button>
+        <button class="op-btn act-trans" title="AI 单句互译补全 (自动应用专有名词表)">${ROW_ICONS.trans}</button>
+        <button class="op-btn act-split" title="智能拆句：将过长的本句按比例一分为二">${ROW_ICONS.split}</button>
+        <button class="op-btn act-insert" title="在下方插入新行">${ROW_ICONS.insert}</button>
+        <button class="op-btn act-merge" title="与下一句合并">${ROW_ICONS.merge}</button>
+        <button class="op-btn danger act-del" title="删除本句">${ROW_ICONS.trash}</button>
       </div>
     `;
 
@@ -2226,9 +2236,49 @@ async function initBootstrap() {
     state.presets = [
       {
         id: "us_drama_default",
-        name: "美剧双语经典 (默认)",
+        name: "美剧双语经典",
         desc: "文泉驿微米黑银灰白 + ITC 暖沙金英文，93%窄字宽与柔边羽化",
         ...structuredClone(state.style),
+      },
+      {
+        id: "cinema_classic",
+        name: "经典蓝光亮白",
+        desc: "纯白中文 + 浅灰英文",
+        order: "zh_top", margin_v: 42, line_gap: 6, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
+        zh: { font: "Microsoft YaHei", size: 58, color: "#FFFFFF", outline_color: "#111827", outline: 2.4, shadow: 1.6, scale_x: 100, bold: true, italic: false },
+        en: { font: "Segoe UI", size: 36, color: "#E2E8F0", outline_color: "#111827", outline: 1.8, shadow: 1.4, scale_x: 100, bold: false, italic: false },
+      },
+      {
+        id: "doc_immersive_box",
+        name: "纪录片黑底盒",
+        desc: "半透明暗黑衬底条",
+        order: "zh_top", margin_v: 48, line_gap: 6, blur: 0, box_mode: true, box_color: "#0F172A", box_opacity: 0.72,
+        zh: { font: "Microsoft YaHei", size: 52, color: "#FFFFFF", outline_color: "#0F172A", outline: 1.5, shadow: 0, scale_x: 100, bold: true, italic: false },
+        en: { font: "Segoe UI", size: 32, color: "#CBD5E1", outline_color: "#0F172A", outline: 1.2, shadow: 0, scale_x: 100, bold: false, italic: false },
+      },
+      {
+        id: "art_house",
+        name: "文艺电影极简",
+        desc: "宋体衬线 + 柔和投影",
+        order: "zh_top", margin_v: 54, line_gap: 8, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        zh: { font: "SimSun", size: 52, color: "#FAF8F5", outline_color: "#1E1E1E", outline: 1.8, shadow: 2.2, scale_x: 100, bold: true, italic: false },
+        en: { font: "Georgia", size: 33, color: "#E7E5E4", outline_color: "#1E1E1E", outline: 1.5, shadow: 1.8, scale_x: 100, bold: false, italic: true },
+      },
+      {
+        id: "ted_talk",
+        name: "TED 公开课风",
+        desc: "醒目纯白中文 + 暖橙英文",
+        order: "zh_top", margin_v: 46, line_gap: 6, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        zh: { font: "Microsoft YaHei", size: 56, color: "#FFFFFF", outline_color: "#0F172A", outline: 3.0, shadow: 1.6, scale_x: 100, bold: true, italic: false },
+        en: { font: "Segoe UI", size: 35, color: "#FDBA74", outline_color: "#0F172A", outline: 2.4, shadow: 1.4, scale_x: 100, bold: true, italic: false },
+      },
+      {
+        id: "english_learner",
+        name: "英语学习主英",
+        desc: "英文大字在上，中文小字在下",
+        order: "en_top", margin_v: 48, line_gap: 7, blur: 1, box_mode: false, box_color: "#000000", box_opacity: 0.5,
+        zh: { font: "Microsoft YaHei", size: 36, color: "#CBD5E1", outline_color: "#0F172A", outline: 2.0, shadow: 1.2, scale_x: 100, bold: false, italic: false },
+        en: { font: "Segoe UI", size: 50, color: "#FEF08A", outline_color: "#0F172A", outline: 2.8, shadow: 1.8, scale_x: 100, bold: true, italic: false },
       },
     ];
   }
@@ -2242,6 +2292,17 @@ async function initBootstrap() {
 }
 
 function bindSceneAndSplitter() {
+  // Sub-tabs inside Custom Font/Color Studio (🇨🇳 中文精调 / 🇬🇧 英文精调)
+  document.querySelectorAll("#customLangTabs .lang-sub-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#customLangTabs .lang-sub-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const target = btn.dataset.langcard;
+      document.getElementById("cardLangZh")?.classList.toggle("hidden", target !== "zh");
+      document.getElementById("cardLangEn")?.classList.toggle("hidden", target !== "en");
+    });
+  });
+
   // Demo Scene Brightness Tester (Dark / Warm / Bright snow)
   document.querySelectorAll(".scene-chip").forEach((chip) => {
     chip.addEventListener("click", (e) => {
@@ -2312,7 +2373,15 @@ function init() {
   if (hasApi()) {
     initBootstrap();
   } else {
-    window.addEventListener("pywebviewready", initBootstrap, { once: true });
+    let bootstrapped = false;
+    const runOnce = () => {
+      if (bootstrapped) return;
+      bootstrapped = true;
+      initBootstrap();
+    };
+    window.addEventListener("pywebviewready", runOnce, { once: true });
+    // Plain-browser preview fallback (no desktop bridge): still show preset cards
+    setTimeout(() => { if (!hasApi()) runOnce(); }, 500);
     // Fallback render right away so UI is never blank
     renderTable();
     syncStyleControlsFromState();

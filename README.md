@@ -1,4 +1,4 @@
-# EasyEasySub · 傻瓜双语字幕工坊 (EasySub Studio)
+# EasySub · 傻瓜双语字幕工坊 (EasySub Studio)
 
 一款像 Aegisub 一样专业、但真正零门槛**“傻瓜式”**的中英双语字幕桌面客户端软件。无需背诵任何 `\fn`、`\3c`、`\blur`、`\r` 复杂特效代码，点点鼠标即可完成双语打轴、AI 听写翻译、美剧原盘级 `.ASS` 排版以及蓝光原盘 PGS (`.SUP`) 图形字幕压制。
 
@@ -38,13 +38,13 @@
 
 ```bash
 pip install pyinstaller pillow
-python -m PyInstaller --noconfirm --clean --onefile --noconsole --name "傻瓜双语字幕工坊" --icon "icon.ico" --add-data "ui;ui" --collect-all webview --collect-all pythonnet --collect-all clr_loader --collect-data faster_whisper --collect-binaries ctranslate2 --collect-binaries onnxruntime --hidden-import faster_whisper --hidden-import httpx --hidden-import PIL.Image app.py
+python -m PyInstaller --noconfirm --onefile --noconsole --name "傻瓜双语字幕工坊" --icon "icon.ico" --add-data "ui;ui" --collect-all webview --collect-all pythonnet --collect-all clr_loader --collect-data faster_whisper --hidden-import core.media_ai --hidden-import core.sup_export --hidden-import faster_whisper --hidden-import ctranslate2 --hidden-import onnxruntime --hidden-import httpx --hidden-import PIL.Image --exclude-module av --exclude-module cryptography --exclude-module hf_xet --exclude-module PIL._avif app.py
 ```
 
 ## 目录结构
 
-- `app.py`：桌面端窗口容器（`pywebview` Edge WebView2）、本地 `Range` 视频流服务器与原生文件对话框桥接
-- `core/subtitles.py`：SRT/ASS/VTT/TXT 解析、中英智能拆分、时间轴对齐合并与 ASS/SRT 导出引擎
-- `core/media_ai.py`：FFmpeg 声波峰值提取、离线 Faster-Whisper 语音识别与多引擎双语翻译服务
-- `core/sup_export.py`：`libass` 矢量透明渲染 + 8-bit RGBA 调色板量化 + 蓝光 HDMV PGS (`.sup`) RLE 编码器
-- `ui/`：可视化桌面编辑器界面（`index.html`、`styles.css`、`app.js`）
+- `app.py`：桌面端窗口容器（`pywebview` Edge WebView2）、懒加载后台预热、本地 `Range` 视频流服务器与原生文件对话框桥接
+- `core/subtitles.py`：SRT/ASS/VTT/TXT 解析、中英智能拆分、v4.1 增强双语合轴、美剧标点清洗、智能拆句与 ASS/SRT 导出引擎
+- `core/media_ai.py`：FFmpeg 声波峰值提取、无 PyAV 轻量离线 Faster-Whisper 语音识别、专有名词锁定与多引擎双语翻译服务
+- `core/sup_export.py`：`libass` 矢量透明渲染 + 8-bit RGBA 调色板量化 + 蓝光 HDMV PGS (`.sup`) RLE 双窗口编码器
+- `ui/`：可视化暗色调色台桌面界面（`index.html`、`styles.css`、`polish.css`、`app.js`）

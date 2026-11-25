@@ -1,0 +1,275 @@
+/* =========================================================================
+   v1.4 Studio Precision Visual Polish Layer
+   ========================================================================= */
+:root {
+  color-scheme: dark;
+  --text-dim: #8b9bb4;
+  --text-muted: #b0bfd4;
+}
+
+/* Upper deck balanced height so both 6 presets + quick controls AND 4+ table rows fit comfortably */
+.upper-deck {
+  height: clamp(366px, 42.5vh, 415px);
+  min-height: 366px;
+  grid-template-columns: 1fr 428px;
+}
+.upper-deck > *, .style-panel, .player-panel, .tab-body {
+  min-height: 0;
+}
+
+/* Subtle ambient theatre frame inside video stage wrap so side margins feel intentional */
+.video-stage-wrap {
+  background:
+    radial-gradient(ellipse at center, rgba(30, 41, 59, 0.38) 0%, #04070e 78%);
+  padding: 6px 12px;
+}
+
+/* Center-balanced player transport bar */
+.player-controls {
+  padding: 0 14px;
+  gap: 12px;
+}
+.transport-right {
+  margin-left: auto;
+  gap: 8px;
+}
+
+/* Clean native dark <select> with ONE crisp native chevron (zero duplicate arrows!) */
+.input-sm, .select-compact {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+select.input-sm, select.select-compact {
+  appearance: auto;
+  -webkit-appearance: menulist;
+  background-image: none !important;
+  padding-right: 8px;
+  cursor: pointer;
+}
+::placeholder {
+  color: #7c8da6;
+  opacity: 1;
+}
+
+/* Compact 3x2 Preset Swatch Wall: all 6 presets + quick layout fit 100% with ZERO scrollbar! */
+.tab-body {
+  padding: 8px 10px;
+  gap: 7px;
+}
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  flex-shrink: 0;
+}
+.preset-card {
+  padding: 5px 6px;
+  gap: 3px;
+  border-radius: 7px;
+}
+.preset-preview-mini {
+  padding: 4px 4px;
+  margin-bottom: 1px;
+}
+.preset-name {
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preset-desc {
+  display: none;
+}
+.preset-badge-active {
+  top: 4px;
+  right: 4px;
+  font-size: 9px;
+  padding: 0 4px;
+}
+
+/* Quick layout box spacing */
+.quick-layout-box {
+  padding: 8px 11px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.quick-row {
+  min-height: 24px;
+}
+.quick-row .switch-label {
+  padding-right: 2px;
+}
+.quick-row .switch-label span {
+  font-size: 11.5px;
+  color: #cbd5e1;
+}
+.save-preset-bar {
+  padding-top: 5px;
+  gap: 6px;
+}
+.save-preset-bar .input-sm {
+  min-height: 27px;
+  font-size: 11.5px;
+}
+
+/* Sub-tabs inside Custom Font/Color Studio */
+.lang-sub-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: #080c17;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.lang-sub-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+.lang-sub-btn:hover {
+  color: #fff;
+}
+.lang-sub-btn.active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.32), rgba(79, 70, 229, 0.28));
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
+}
+
+.style-lang-card {
+  padding: 10px 12px;
+  gap: 9px;
+  flex-shrink: 0;
+}
+.form-grid-2 {
+  gap: 8px 12px;
+}
+.ms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.ms-head b {
+  color: #93c5fd;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Modal header row alignment */
+.sec-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.form-grid-3 {
+  align-items: end;
+}
+
+/* Subtitle Table: Golden-ratio bilingual columns (wider English column!) + crisp vector action buttons */
+.sub-table-header, .sub-row {
+  grid-template-columns: 38px 218px minmax(160px, 0.82fr) minmax(240px, 1.18fr) 202px;
+  gap: 8px;
+  padding-left: 10px;
+  padding-right: 12px;
+}
+.col-hint {
+  color: #8b9bb4;
+}
+.sub-input {
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.sub-input.too-long {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.75);
+}
+
+/* Crisp monochrome SVG row action buttons */
+.row-ops {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.op-btn {
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+  color: #cbd5e1;
+  background: #141e35;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  padding: 0;
+}
+.op-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.op-btn.act-play {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+.op-btn.act-play svg {
+  fill: currentColor;
+  stroke: none;
+}
+.op-btn.top-active {
+  background: rgba(6, 182, 212, 0.24);
+  border-color: #22d3ee;
+  color: #67e8f9;
+  font-size: 11px;
+  font-weight: 700;
+}
+.op-btn.danger {
+  color: #fda4af;
+}
+.op-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fecdd3;
+}
+
+/* Footer status bar legibility */
+.statusbar {
+  color: #b0bfd4;
+}
+.status-shortcuts {
+  color: #b0bfd4;
+  gap: 14px;
+}
+.statusbar kbd {
+  background: rgba(255, 255, 255, 0.13);
+  color: #f8fafc;
+}
+
+/* Only collapse secondary items on truly narrow screens (<1150px) */
+@media (max-width: 1150px) {
+  .upper-deck {
+    grid-template-columns: 1fr 370px;
+  }
+  .brand-sub {
+    max-width: 200px;
+  }
+  .export-formats-hint {
+    display: none;
+  }
+  .status-shortcuts span:nth-child(n+5) {
+    display: none;
+  }
+}

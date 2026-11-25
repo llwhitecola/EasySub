@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EasySub Studio · 傻瓜双语字幕工坊</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="polish.css" />
 </head>
 <body>
   <!-- Sleek Studio Header -->
@@ -16,7 +17,7 @@
       <div class="brand-meta">
         <div class="brand-title">
           傻瓜双语字幕工坊
-          <span class="badge-pro">Studio v1.3</span>
+          <span class="badge-pro">Studio v1.4</span>
         </div>
         <div class="brand-sub" id="mediaStatusText" title="点击可打开或切换视频">
           <span class="status-dot"></span> 演示画布预览中 · 支持直接拖入音视频或字幕文件
@@ -160,10 +161,10 @@
             </div>
 
             <div class="quick-row">
-              <span class="q-label">纪录片黑底盒</span>
+              <span class="q-label">黑底衬条</span>
               <label class="switch-label">
                 <input type="checkbox" class="ui-switch" id="chkBoxMode" />
-                <span>开启半透明暗黑衬底</span>
+                <span>半透明暗黑衬底</span>
               </label>
             </div>
 
@@ -173,7 +174,7 @@
                 <input type="range" id="rngMarginV" min="5" max="180" value="15" class="slider" />
               </label>
               <label class="mini-slider-field">
-                <div class="ms-head"><span>柔边羽化 (\blur)</span><b id="lblBlur">2</b></div>
+                <div class="ms-head"><span>柔边羽化</span><b id="lblBlur">2</b></div>
                 <input type="range" id="rngBlur" min="0" max="5" step="0.5" value="2" class="slider" />
               </label>
             </div>
@@ -185,18 +186,23 @@
           </div>
         </div>
 
-        <!-- Tab 2: Detailed ZH & EN Font/Size/Color/Stroke Controls -->
+        <!-- Tab 2: Detailed ZH & EN Font/Size/Color/Stroke Controls (Zero-Scroll Sub-Tabs) -->
         <div class="tab-body" id="tab-custom">
-          <div class="style-lang-card">
+          <div class="lang-sub-tabs" id="customLangTabs">
+            <button class="lang-sub-btn active" data-langcard="zh">🇨🇳 中文字幕精调</button>
+            <button class="lang-sub-btn" data-langcard="en">🇬🇧 英文字幕精调</button>
+          </div>
+
+          <div class="style-lang-card" id="cardLangZh">
             <div class="lang-card-header">
-              <span>🇨🇳 中文字幕样式</span>
+              <span>中文字形与色彩</span>
               <div class="inline-checks">
                 <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhBold" checked /><span>粗体</span></label>
                 <label class="switch-label"><input type="checkbox" class="ui-switch" id="zhItalic" /><span>斜体</span></label>
               </div>
             </div>
             <div class="form-grid-2">
-              <label>字体家族
+              <label class="span-2">字体家族
                 <select id="zhFont" class="input-sm">
                   <option value="WenQuanYi Micro Hei" selected>文泉驿微米黑 (美剧默认)</option>
                   <option value="Microsoft YaHei">微软雅黑 (清晰百搭)</option>
@@ -208,8 +214,13 @@
                   <option value="DengXian">等线 (现代极简)</option>
                 </select>
               </label>
-              <label>字号大小 (<b id="lblZhSize">70</b>)
+              <label>
+                <div class="ms-head"><span>字号大小</span><b id="lblZhSize">70</b></div>
                 <input type="range" id="zhSize" min="26" max="96" value="70" class="slider" />
+              </label>
+              <label>
+                <div class="ms-head"><span>横向字宽</span><b><span id="lblZhScaleX">93</span>%</b></div>
+                <input type="range" id="zhScaleX" min="75" max="115" step="1" value="93" class="slider" />
               </label>
               <label>文字颜色
                 <div class="color-pick-wrap">
@@ -223,28 +234,27 @@
                   <span id="lblZhOutlineColor">#000000</span>
                 </div>
               </label>
-              <label>描边粗细 (<b id="lblZhOutline">0.8</b>)
+              <label>
+                <div class="ms-head"><span>描边粗细</span><b id="lblZhOutline">0.8</b></div>
                 <input type="range" id="zhOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
               </label>
-              <label>阴影深度 (<b id="lblZhShadow">0.7</b>)
+              <label>
+                <div class="ms-head"><span>阴影深度</span><b id="lblZhShadow">0.7</b></div>
                 <input type="range" id="zhShadow" min="0" max="6" step="0.1" value="0.7" class="slider" />
-              </label>
-              <label class="span-2">横向字宽比例 (<b id="lblZhScaleX">93</b>%)
-                <input type="range" id="zhScaleX" min="75" max="115" step="1" value="93" class="slider" />
               </label>
             </div>
           </div>
 
-          <div class="style-lang-card">
+          <div class="style-lang-card hidden" id="cardLangEn">
             <div class="lang-card-header">
-              <span>🇬🇧 英文字幕样式</span>
+              <span>英文字形与色彩</span>
               <div class="inline-checks">
                 <label class="switch-label"><input type="checkbox" class="ui-switch" id="enBold" checked /><span>粗体</span></label>
                 <label class="switch-label"><input type="checkbox" class="ui-switch" id="enItalic" /><span>斜体</span></label>
               </div>
             </div>
             <div class="form-grid-2">
-              <label>字体家族
+              <label class="span-2">字体家族
                 <select id="enFont" class="input-sm">
                   <option value="ITCAvantGardePro-Demi" selected>ITCAvantGardePro-Demi (美剧默认)</option>
                   <option value="Cronos Pro">Cronos Pro (天空英语)</option>
@@ -256,8 +266,13 @@
                   <option value="WenQuanYi Micro Hei">文泉驿微米黑</option>
                 </select>
               </label>
-              <label>字号大小 (<b id="lblEnSize">47</b>)
+              <label>
+                <div class="ms-head"><span>字号大小</span><b id="lblEnSize">47</b></div>
                 <input type="range" id="enSize" min="18" max="76" value="47" class="slider" />
+              </label>
+              <label>
+                <div class="ms-head"><span>横向字宽</span><b><span id="lblEnScaleX">95</span>%</b></div>
+                <input type="range" id="enScaleX" min="75" max="115" step="1" value="95" class="slider" />
               </label>
               <label>文字颜色
                 <div class="color-pick-wrap">
@@ -271,14 +286,13 @@
                   <span id="lblEnOutlineColor">#040000</span>
                 </div>
               </label>
-              <label>描边粗细 (<b id="lblEnOutline">0.8</b>)
+              <label>
+                <div class="ms-head"><span>描边粗细</span><b id="lblEnOutline">0.8</b></div>
                 <input type="range" id="enOutline" min="0" max="6" step="0.1" value="0.8" class="slider" />
               </label>
-              <label>阴影深度 (<b id="lblEnShadow">0.8</b>)
+              <label>
+                <div class="ms-head"><span>阴影深度</span><b id="lblEnShadow">0.8</b></div>
                 <input type="range" id="enShadow" min="0" max="6" step="0.1" value="0.8" class="slider" />
-              </label>
-              <label class="span-2">横向字宽比例 (<b id="lblEnScaleX">95</b>%)
-                <input type="range" id="enScaleX" min="75" max="115" step="1" value="95" class="slider" />
               </label>
             </div>
           </div>
@@ -318,7 +332,7 @@
 
           <label class="zoom-wrap" title="缩放声波时间轴比例">
             <span>🔍 缩放</span>
-            <input type="range" id="rngZoom" min="40" max="260" value="105" class="slider slider-xs" />
+            <input type="range" id="rngZoom" min="40" max="260" value="72" class="slider slider-xs" />
           </label>
         </div>
       </div>
@@ -541,8 +555,14 @@
         </div>
 
         <div class="ai-config-section" id="secTransConfig">
-          <div class="sec-heading">🌐 双语翻译设置</div>
-          <div class="form-grid-3">
+          <div class="sec-heading-row">
+            <div class="sec-heading">🌐 双语翻译设置</div>
+            <label class="switch-label">
+              <input type="checkbox" class="ui-switch" id="aiTransOverwrite" />
+              <span>覆盖已有译文（默认仅补全空行）</span>
+            </label>
+          </div>
+          <div class="form-grid-2">
             <label>翻译方向
               <select id="aiTransDir" class="input-sm">
                 <option value="en_to_zh" selected>英文 ➔ 翻译生成中文 (最常用)</option>
@@ -552,12 +572,8 @@
             <label>翻译引擎
               <select id="aiTransProvider" class="input-sm">
                 <option value="free" selected>⚡ 免配置极速神经网络翻译 (开箱即用)</option>
-                <option value="llm">🧠 AI 大模型结合上下文影视精翻 (DeepSeek/OpenAI等)</option>
+                <option value="llm">🧠 AI 大模型结合上下文精翻 (DeepSeek/OpenAI)</option>
               </select>
-            </label>
-            <label class="check-bottom switch-label">
-              <input type="checkbox" class="ui-switch" id="aiTransOverwrite" />
-              <span>覆盖已有译文（默认仅补全空行）</span>
             </label>
           </div>
 
