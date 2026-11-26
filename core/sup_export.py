@@ -1,7 +1,7 @@
 """
 ASS to Blu-ray HDMV PGS (.sup) Graphic Subtitle Encoder Engine.
 Uses FFmpeg's built-in libass renderer for 100% authentic vector/tag/blur rendering,
-splits VSFilterMod \\1vc gradients into key-colour masks and applies the true bilinear
+splits VSFilterMod \\1vc gradients into isolated glyph masks and applies the bilinear
 gradient on the CPU, then quantizes with Pillow FASTOCTREE and encodes Blu-ray PGS RLE.
 """
 
@@ -156,57 +156,33 @@ def _unpremultiply_rgba(frame: np.ndarray) -> np.ndarray:
     return out
 
 
-def _composite_gradient_fills(
+def _composite_gradient_fill(
     base: np.ndarray,
-    fill: np.ndarray,
-    specs: list[dict[str, Any]],
-    play_w: int,
-    play_h: int,
-) -> np.ndarray:
-    """Turn each key-coloured fill mask into a true bilinear \\1vc gradient over the base."""
-    h, w = base.shape[:2]
-    sx = w / max(1, play_w)
-    sy = h / max(1, play_h)
-    active = fill[:, :, 3] > 2
-    if not active.any():
-        return base
-    # A film can carry thousands of gradient lines; only the handful whose key actually
-    # appears in this interval's fill frame should pay for a full-frame mask lookup.
-    active_rgb = fill[active][:, :3].astype(np.int32)
-    present = set(
-        ((active_rgb[:, 0] << 16) | (active_rgb[:, 1] << 8) | active_rgb[:, 2]).tolist()
-    )
-    rgb = fill[:, :, :3].astype(np.int16)
-    for spec in specs:
-        key = np.asarray(spec["key"], dtype=np.int16)
-        if ((int(key[0]) << 16) | (int(key[1]) << 8) | int(key[2])) not in present:
-            continue
-        mask = (np.abs(rgb - key).max(axis=2) <= 2) & active
-        if not mask.any():
-            continue
-        ys, xs = np.nonzero(mask)
+    alpha: np.ndarray,
+    corners: tuple[tuple[int, int, int], ...],
+) -> None:
+    """Apply a bilinear gradient over the glyph bounds, preserving anti-aliasing."""
+    ys, xs = np.nonzero(alpha > 2)
+    if not xs.size:
+        return
 
-        # Map the four corner colours over the real fill bbox (PlayRes coordinates), so
-        # the gradient spans the glyphs exactly instead of an estimated/full-screen box.
-        x0, x1 = xs.min() / sx, (xs.max() + 1) / sx
-        y0, y1 = ys.min() / sy, (ys.max() + 1) / sy
-        u = np.clip((xs / sx - x0) / max(1e-3, x1 - x0), 0.0, 1.0).astype(np.float32)
-        v = np.clip((ys / sy - y0) / max(1e-3, y1 - y0), 0.0, 1.0).astype(np.float32)
-        tl, tr, bl, br = (np.asarray(c, dtype=np.float32) for c in spec["corners"])
-        top = tl + (tr - tl) * u[:, None]
-        bottom = bl + (br - bl) * u[:, None]
-        colour = top + (bottom - top) * v[:, None]
+    x0, y0 = xs.min(), ys.min()
+    u = ((xs - x0) / max(1, xs.max() - x0)).astype(np.float32)
+    v = ((ys - y0) / max(1, ys.max() - y0)).astype(np.float32)
+    tl, tr, bl, br = np.asarray(corners, dtype=np.float32)
+    top = tl + (tr - tl) * u[:, None]
+    bottom = bl + (br - bl) * u[:, None]
+    colour = top + (bottom - top) * v[:, None]
 
-        af = fill[ys, xs, 3].astype(np.float32) / 255.0
-        ab = base[ys, xs, 3].astype(np.float32) / 255.0
-        out_a = af + ab * (1.0 - af)
-        base_rgb = base[ys, xs, :3].astype(np.float32)
-        out_rgb = (
-            colour * af[:, None] + base_rgb * ab[:, None] * (1.0 - af)[:, None]
-        ) / np.maximum(out_a, 1e-6)[:, None]
-        base[ys, xs, :3] = np.clip(out_rgb, 0, 255).astype(np.uint8)
-        base[ys, xs, 3] = np.clip(out_a * 255, 0, 255).astype(np.uint8)
-    return base
+    af = alpha[ys, xs].astype(np.float32) / 255.0
+    ab = base[ys, xs, 3].astype(np.float32) / 255.0
+    out_a = af + ab * (1.0 - af)
+    base_rgb = base[ys, xs, :3].astype(np.float32)
+    out_rgb = (
+        colour * af[:, None] + base_rgb * ab[:, None] * (1.0 - af)[:, None]
+    ) / out_a[:, None]
+    base[ys, xs, :3] = np.rint(np.clip(out_rgb, 0, 255)).astype(np.uint8)
+    base[ys, xs, 3] = np.rint(np.clip(out_a * 255, 0, 255)).astype(np.uint8)
 
 
 def _extract_subtitle_regions(frame_rgba: np.ndarray) -> list[tuple[int, int, np.ndarray]]:
@@ -604,31 +580,37 @@ def convert_ass_content_to_sup(
             + "\n".join(synth_event_lines)
             + "\n"
         )
-        base_ass, fill_ass, gradient_specs, play_w, play_h = split_ass_vc_for_pgs(full_synth_ass)
+        base_ass, fill_ass, gradients = split_ass_vc_for_pgs(full_synth_ass)
+        mask_count = sum(len(corners) for corners in gradients.values())
         synthetic_ass.write_text(base_ass, encoding="utf-8-sig")
         fill_ass_path = tmp_path / "pgs_fill.ass"
         if fill_ass:
             fill_ass_path.write_text(fill_ass, encoding="utf-8-sig")
 
-        def render_cmd(ass_name: str) -> list[str]:
+        def render_cmd(ass_name: str, frames: int, *, mask: bool = False) -> list[str]:
+            video_filter = f"subtitles={ass_name}:alpha=1,trim=start_frame=1:end_frame={frames + 1}"
+            if mask:
+                video_filter += ",alphaextract"
             return [
                 "ffmpeg",
+                "-nostdin",
                 "-v",
                 "error",
                 "-f",
                 "lavfi",
                 "-i",
-                f"color=c=black@0.0:s={canvas_w}x{canvas_h}:r=1:d={total + 2},format=rgba",
+                f"color=c=black@0.0:s={canvas_w}x{canvas_h}:r=1:d={frames + 2},format=rgba",
                 "-vf",
-                f"subtitles={ass_name}:alpha=1,trim=start_frame=1:end_frame={total + 1}",
+                video_filter,
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
-                "rgba",
+                "gray" if mask else "rgba",
                 "-",
             ]
 
-        frame_byte_len = canvas_w * canvas_h * 4
+        mask_byte_len = canvas_w * canvas_h
+        frame_byte_len = mask_byte_len * 4
         out_path = Path(out_sup_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -638,7 +620,7 @@ def convert_ass_content_to_sup(
         last_objects: list[tuple[int, int, int, int, bytes]] = []
 
         base_proc = subprocess.Popen(
-            render_cmd(synthetic_ass.name),
+            render_cmd(synthetic_ass.name, total),
             cwd=str(tmp_path),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -646,7 +628,7 @@ def convert_ass_content_to_sup(
         )
         fill_proc = (
             subprocess.Popen(
-                render_cmd(fill_ass_path.name),
+                render_cmd(fill_ass_path.name, mask_count, mask=True),
                 cwd=str(tmp_path),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -672,17 +654,13 @@ def convert_ass_content_to_sup(
                         )
                         if fill_proc is not None:
                             assert fill_proc.stdout is not None
-                            raw_fill = _read_exact(fill_proc.stdout, frame_byte_len)
-                            if len(raw_fill) < frame_byte_len:
-                                raise RuntimeError("FFmpeg 渐变填充渲染输出提前结束，SUP 可能不完整。")
-                            fill_arr = _unpremultiply_rgba(
-                                np.frombuffer(raw_fill, dtype=np.uint8).reshape(
-                                    (canvas_h, canvas_w, 4)
-                                )
-                            )
-                            frame_arr = _composite_gradient_fills(
-                                frame_arr, fill_arr, gradient_specs, play_w, play_h
-                            )
+                            start = format_ass_timestamp((k + 1) * 1000 - 250)
+                            for corners in gradients.get(start, ()):
+                                raw_fill = _read_exact(fill_proc.stdout, mask_byte_len)
+                                if len(raw_fill) < mask_byte_len:
+                                    raise RuntimeError("FFmpeg 渐变蒙版输出提前结束，SUP 可能不完整。")
+                                alpha = np.frombuffer(raw_fill, dtype=np.uint8).reshape(canvas_h, canvas_w)
+                                _composite_gradient_fill(frame_arr, alpha, corners)
                         regions = _extract_subtitle_regions(frame_arr)
                         if not regions:
                             # Fully transparent interval (e.g. an alpha-hidden line):

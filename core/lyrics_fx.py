@@ -14,6 +14,9 @@ ASS_VC_RE = re.compile(
     r"\\1?vc\(\s*&H([0-9a-fA-F]{6})&?\s*,\s*&H([0-9a-fA-F]{6})&?\s*,\s*&H([0-9a-fA-F]{6})&?\s*,\s*&H([0-9a-fA-F]{6})&?\s*\)",
     re.IGNORECASE,
 )
+_MASK_DECORATION_RE = re.compile(
+    r"\\(?:[xy]?(?:bord|shad)|blur|be)\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)", re.IGNORECASE
+)
 
 VALID_ANIM_IDS = frozenset(
     {
@@ -171,10 +174,6 @@ def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dic
                 name = row.get("name", "")
                 if name:
                     try:
-                        fs = float(row.get("fontsize", "60") or 60)
-                    except ValueError:
-                        fs = 60.0
-                    try:
                         mv = int(float(row.get("marginv", "20") or 20))
                     except ValueError:
                         mv = 20
@@ -191,7 +190,6 @@ def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dic
                     except ValueError:
                         mr = 10
                     styles[name] = {
-                        "fontsize": fs,
                         "marginv": mv,
                         "alignment": align,
                         "marginl": ml,
@@ -222,47 +220,28 @@ def _inject_leading_tags(text: str, extra_tags: str) -> str:
     return f"{{{extra_tags}}}{text}"
 
 
-def split_ass_vc_for_pgs(ass_content: str) -> tuple[str, str, list[dict[str, Any]], int, int]:
+def split_ass_vc_for_pgs(
+    ass_content: str,
+) -> tuple[str, str, dict[str, list[tuple[tuple[int, int, int], ...]]]]:
     """
-    Split VSFilterMod \\1vc(...) gradients into two ASS passes for Blu-ray PGS:
+    Split the PGS render script into base frames and isolated gradient mask frames.
 
-      base_ass: the script as-is, except each gradient line's primary fill is made
-                transparent (\\1a&HFF&) so this pass renders only its outline/shadow.
-      fill_ass: one solid "key colour" fill event per gradient line (\\bord0\\shad0\\blur0,
-                pinned with \\an+\\pos).  The PGS converter renders it on its own, turns
-                each key colour into an alpha mask and applies the true bilinear gradient
-                on the CPU.  That replaces the old 6x3/1x10 \\clip slice approximation,
-                which showed visible colour blocks because libass (unlike VSFilterMod)
-                cannot render \\1vc natively.
-
-    Returns (base_ass, fill_ass, specs, play_w, play_h).  fill_ass is "" when the script
-    has no gradient; specs carries each key's four corner colours and an approximate box.
+    Each gradient event gets its own mask frame in script order. Group the corresponding
+    corner colours by the base frame's synthetic start timestamp.
     """
     if "vc(" not in ass_content.lower():
-        return ass_content, "", [], 1920, 1080
+        return ass_content, "", {}
+
+    from core.subtitles import format_ass_timestamp
 
     play_w, play_h, styles = _parse_playres_and_styles(ass_content)
     header_lines: list[str] = []
     base_events: list[str] = []
     fill_events: list[str] = []
-    specs: list[dict[str, Any]] = []
+    gradients: dict[str, list[tuple[tuple[int, int, int], ...]]] = {}
     fmt_fields: list[str] = []
     events_format = "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     in_events = False
-    used_keys: set[tuple[int, int, int]] = set()
-
-    def next_key() -> tuple[int, int, int]:
-        i = len(specs)
-        while True:
-            i += 1
-            key = (
-                (i * 53 + 17) % 241 + 7,
-                (i * 97 + 41) % 241 + 7,
-                (i * 151 + 89) % 241 + 7,
-            )
-            if key not in used_keys:
-                used_keys.add(key)
-                return key
 
     for raw in ass_content.splitlines():
         stripped = raw.strip()
@@ -306,26 +285,26 @@ def split_ass_vc_for_pgs(ass_content: str) -> tuple[str, str, list[dict[str, Any
             base_events.append(raw)
             continue
 
-        layer_idx = fmt_fields.index("layer") if "layer" in fmt_fields else 0
+        start_idx = fmt_fields.index("start")
+        end_idx = fmt_fields.index("end")
         style_idx = fmt_fields.index("style") if "style" in fmt_fields else 3
         mv_idx = fmt_fields.index("marginv") if "marginv" in fmt_fields else 7
         ml_idx = fmt_fields.index("marginl") if "marginl" in fmt_fields else -1
         mr_idx = fmt_fields.index("marginr") if "marginr" in fmt_fields else -1
 
-        tl, tr, bl, br = (ass_bgr_to_rgb(m.group(i)) for i in (1, 2, 3, 4))
+        corners = tuple(ass_bgr_to_rgb(m.group(i)) for i in (1, 2, 3, 4))
         clean_text = ASS_VC_RE.sub("", text)
         clean_text = re.sub(r"\\1?c&H[0-9a-fA-F]+&?", "", clean_text)
 
         st_info = styles.get(
             parts[style_idx].strip(),
-            {"fontsize": 64.0, "marginv": 20, "alignment": 2, "marginl": 10, "marginr": 10},
+            {"marginv": 20, "alignment": 2, "marginl": 10, "marginr": 10},
         )
         try:
             ev_mv = int(parts[mv_idx].strip())
         except (ValueError, IndexError):
             ev_mv = 0
         mv = ev_mv if ev_mv > 0 else int(st_info["marginv"])
-        fs = float(st_info["fontsize"])
         align = int(st_info["alignment"])
         an_m = re.search(r"\\an([1-9])", clean_text)
         if an_m:
@@ -355,54 +334,27 @@ def split_ass_vc_for_pgs(ass_content: str) -> tuple[str, str, list[dict[str, Any
             ay = play_h // 2
         else:
             ay = play_h - mv
-        anchor = f"\\an{align}\\pos({ax},{ay})"
-
-        # Approximate text box (the converter maps the gradient over the real fill mask).
-        if align in (7, 8, 9):
-            y0 = max(0, int(mv - fs * 0.2))
-            y1 = min(play_h, int(mv + fs * 1.45))
-        elif align in (4, 5, 6):
-            y0 = max(0, int(play_h * 0.5 - fs * 0.9))
-            y1 = min(play_h, int(play_h * 0.5 + fs * 0.9))
-        else:
-            y1 = max(8, min(play_h, int(play_h - mv + fs * 0.25)))
-            y0 = max(0, int(play_h - mv - fs * 1.35))
-        if y1 <= y0 + 4:
-            y0, y1 = 0, play_h
-        plain_chars = re.sub(r"\{[^}]*\}", "", clean_text)
-        est_w = sum(fs if ord(ch) > 0x2E7F else fs * 0.55 for ch in plain_chars)
-        half_w = max(int(fs * 1.5), min(play_w // 2, int(est_w * 0.58 + fs)))
-        x0 = max(0, play_w // 2 - half_w)
-        x1 = min(play_w, play_w // 2 + half_w)
-
-        key = next_key()
+        anchor = "" if re.search(r"\\(?:pos|move)\s*\(", clean_text, re.IGNORECASE) else f"\\an{align}\\pos({ax},{ay})"
         base_parts = list(parts)
         base_parts[text_idx] = _inject_leading_tags(clean_text, anchor + "\\1a&HFF&")
         base_events.append("Dialogue: " + ",".join(base_parts))
 
         fill_parts = list(parts)
-        fill_parts[layer_idx] = "0"
+        mask_time = (len(fill_events) + 1) * 1000
+        fill_parts[start_idx] = format_ass_timestamp(mask_time - 250)
+        fill_parts[end_idx] = format_ass_timestamp(mask_time + 250)
+        # Later inline blur/border/shadow tags would override the leading mask tags.
+        fill_text = re.sub(r"\{[^}]*\}", lambda block: _MASK_DECORATION_RE.sub("", block.group()), clean_text)
         fill_parts[text_idx] = _inject_leading_tags(
-            clean_text,
-            anchor
-            + "\\1a&H00&\\3a&HFF&\\4a&HFF&\\bord0\\shad0\\blur0\\1c"
-            + rgb_to_ass_bgr(*key),
+            fill_text,
+            anchor + "\\1a&H00&\\3a&HFF&\\4a&HFF&\\bord0\\shad0\\blur0\\be0\\1c&HFFFFFF&",
         )
         fill_events.append("Dialogue: " + ",".join(fill_parts))
-        specs.append(
-            {
-                "key": key,
-                "x0": x0,
-                "y0": y0,
-                "x1": x1,
-                "y1": y1,
-                "corners": (tl, tr, bl, br),
-            }
-        )
+        gradients.setdefault(parts[start_idx], []).append(corners)
 
-    if not specs:
-        return ass_content, "", [], play_w, play_h
+    if not gradients:
+        return ass_content, "", {}
 
     base_ass = "\n".join(header_lines + ["[Events]", events_format] + base_events) + "\n"
     fill_ass = "\n".join(header_lines + ["[Events]", events_format] + fill_events) + "\n"
-    return base_ass, fill_ass, specs, play_w, play_h
+    return base_ass, fill_ass, gradients
