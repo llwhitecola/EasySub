@@ -453,7 +453,12 @@ export function initStyles() {
     return f;
   };
   ui.margin = fader("faderMargin", { label: "距底高度", min: 0, max: 400 }, "margin_v");
-  ui.gap = fader("faderGap", { label: "中英间距", min: -8, max: 28 }, "line_gap");
+  ui.gap = fader("faderGap", {
+    label: "中英间距",
+    min: -30,
+    max: 28,
+    tip: "按可见空隙计：数字是上行文字底部到下文字顶部的像素（1920×1080 脚本分辨率），按实际字体的墨迹计算。0 = 两行刚好相接，正数更松、负数重叠。Aegisub 的样式里没有行间距参数，它的「间距」字段是横向字距。",
+  }, "line_gap");
   ui.blur = fader("faderBlur", { label: "柔边羽化", min: 0, max: 5, step: 0.5 }, "blur");
   buildLangCard("zh");
   buildLangCard("en");

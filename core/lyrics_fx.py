@@ -1,6 +1,6 @@
 """
 Lyrics narrative aesthetics, ASS \\1vc 4-corner vertex gradients, kinetic \\t() animations,
-and libass \\clip gradient expansion for Blu-ray SUP rasterization.
+and PGS gradient splitting (true bilinear \\1vc compositing) for Blu-ray SUP rasterization.
 """
 
 from __future__ import annotations
@@ -182,7 +182,21 @@ def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dic
                         align = int(row.get("alignment", "2") or 2)
                     except ValueError:
                         align = 2
-                    styles[name] = {"fontsize": fs, "marginv": mv, "alignment": align}
+                    try:
+                        ml = int(float(row.get("marginl", "10") or 10))
+                    except ValueError:
+                        ml = 10
+                    try:
+                        mr = int(float(row.get("marginr", "10") or 10))
+                    except ValueError:
+                        mr = 10
+                    styles[name] = {
+                        "fontsize": fs,
+                        "marginv": mv,
+                        "alignment": align,
+                        "marginl": ml,
+                        "marginr": mr,
+                    }
     return play_w, play_h, styles
 
 
@@ -208,74 +222,107 @@ def _inject_leading_tags(text: str, extra_tags: str) -> str:
     return f"{{{extra_tags}}}{text}"
 
 
-def expand_ass_vc_for_libass(ass_content: str) -> str:
+def split_ass_vc_for_pgs(ass_content: str) -> tuple[str, str, list[dict[str, Any]], int, int]:
     """
-    Expand VSFilterMod \\1vc(TL,TR,BL,BR) tags into libass-native seamless \\clip slices
-    for Blu-ray PGS (.sup) rasterization!
-      - Base Dialogue keeps single-pass blurred outline & shadow with transparent fill (\\1a&HFF&).
-      - Overlay slices draw crisp interior glyph fill (\\3a&HFF&\\4a&HFF&\\blur0) across non-overlapping
-        integer \\clip rectangles so outline alpha never double-stacks and gradients render smoothly.
+    Split VSFilterMod \\1vc(...) gradients into two ASS passes for Blu-ray PGS:
+
+      base_ass: the script as-is, except each gradient line's primary fill is made
+                transparent (\\1a&HFF&) so this pass renders only its outline/shadow.
+      fill_ass: one solid "key colour" fill event per gradient line (\\bord0\\shad0\\blur0,
+                pinned with \\an+\\pos).  The PGS converter renders it on its own, turns
+                each key colour into an alpha mask and applies the true bilinear gradient
+                on the CPU.  That replaces the old 6x3/1x10 \\clip slice approximation,
+                which showed visible colour blocks because libass (unlike VSFilterMod)
+                cannot render \\1vc natively.
+
+    Returns (base_ass, fill_ass, specs, play_w, play_h).  fill_ass is "" when the script
+    has no gradient; specs carries each key's four corner colours and an approximate box.
     """
     if "vc(" not in ass_content.lower():
-        return ass_content
+        return ass_content, "", [], 1920, 1080
 
     play_w, play_h, styles = _parse_playres_and_styles(ass_content)
-    out_lines: list[str] = []
-    section = ""
+    header_lines: list[str] = []
+    base_events: list[str] = []
+    fill_events: list[str] = []
+    specs: list[dict[str, Any]] = []
     fmt_fields: list[str] = []
+    events_format = "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+    in_events = False
+    used_keys: set[tuple[int, int, int]] = set()
+
+    def next_key() -> tuple[int, int, int]:
+        i = len(specs)
+        while True:
+            i += 1
+            key = (
+                (i * 53 + 17) % 241 + 7,
+                (i * 97 + 41) % 241 + 7,
+                (i * 151 + 89) % 241 + 7,
+            )
+            if key not in used_keys:
+                used_keys.add(key)
+                return key
 
     for raw in ass_content.splitlines():
         stripped = raw.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            section = stripped.lower()
-            out_lines.append(raw)
-            continue
-        if section != "[events]":
-            out_lines.append(raw)
-            continue
-        if stripped.lower().startswith("format:"):
-            fmt_fields = [f.strip().lower() for f in stripped.split(":", 1)[1].split(",")]
-            out_lines.append(raw)
-            continue
-        if not stripped.lower().startswith("dialogue:") or "\\N" in stripped:
-            # Note: EasySub's own dual-layer export never uses \N; for single-line events expand cleanly:
-            if not stripped.lower().startswith("dialogue:"):
-                out_lines.append(raw)
+            if stripped.lower() == "[events]":
+                in_events = True
                 continue
+            in_events = False
+            header_lines.append(raw)
+            continue
+        if not in_events:
+            header_lines.append(raw)
+            continue
 
+        low = stripped.lower()
+        if low.startswith("format:"):
+            events_format = stripped
+            fmt_fields = [f.strip().lower() for f in stripped.split(":", 1)[1].split(",")]
+            continue
+        if not low.startswith("dialogue:"):
+            base_events.append(raw)
+            continue
         if not fmt_fields:
-            fmt_fields = ["layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text"]
+            fmt_fields = [
+                "layer", "start", "end", "style", "name",
+                "marginl", "marginr", "marginv", "effect", "text",
+            ]
 
         payload = stripped.split(":", 1)[1].lstrip()
         parts = payload.split(",", len(fmt_fields) - 1)
         if len(parts) < len(fmt_fields):
-            out_lines.append(raw)
+            base_events.append(raw)
             continue
 
         text_idx = fmt_fields.index("text") if "text" in fmt_fields else len(fmt_fields) - 1
+        text = parts[text_idx]
+        m = ASS_VC_RE.search(text)
+        # Multi-line \N gradient events stay untouched: libass falls back to the flat
+        # \1c colour rather than getting an invisible or misaligned fill.
+        if not m or "\\N" in text:
+            base_events.append(raw)
+            continue
+
         layer_idx = fmt_fields.index("layer") if "layer" in fmt_fields else 0
         style_idx = fmt_fields.index("style") if "style" in fmt_fields else 3
         mv_idx = fmt_fields.index("marginv") if "marginv" in fmt_fields else 7
-
-        text = parts[text_idx]
-        m = ASS_VC_RE.search(text)
-        if not m or "\\N" in text:
-            out_lines.append(raw)
-            continue
+        ml_idx = fmt_fields.index("marginl") if "marginl" in fmt_fields else -1
+        mr_idx = fmt_fields.index("marginr") if "marginr" in fmt_fields else -1
 
         tl, tr, bl, br = (ass_bgr_to_rgb(m.group(i)) for i in (1, 2, 3, 4))
         clean_text = ASS_VC_RE.sub("", text)
         clean_text = re.sub(r"\\1?c&H[0-9a-fA-F]+&?", "", clean_text)
 
-        try:
-            base_layer = int(parts[layer_idx].strip())
-        except ValueError:
-            base_layer = 0
-
-        st_info = styles.get(parts[style_idx].strip(), {"fontsize": 64.0, "marginv": 20, "alignment": 2})
+        st_info = styles.get(
+            parts[style_idx].strip(),
+            {"fontsize": 64.0, "marginv": 20, "alignment": 2, "marginl": 10, "marginr": 10},
+        )
         try:
             ev_mv = int(parts[mv_idx].strip())
-        except ValueError:
+        except (ValueError, IndexError):
             ev_mv = 0
         mv = ev_mv if ev_mv > 0 else int(st_info["marginv"])
         fs = float(st_info["fontsize"])
@@ -284,7 +331,33 @@ def expand_ass_vc_for_libass(ass_content: str) -> str:
         if an_m:
             align = int(an_m.group(1))
 
-        # Estimate vertical & horizontal bounding region in PlayRes coordinates
+        def _event_int(idx: int) -> int:
+            if idx < 0:
+                return 0
+            try:
+                return int(parts[idx].strip())
+            except (ValueError, IndexError):
+                return 0
+
+        ev_ml, ev_mr = _event_int(ml_idx), _event_int(mr_idx)
+        ml = ev_ml if ev_ml > 0 else int(st_info.get("marginl", 10))
+        mr = ev_mr if ev_mr > 0 else int(st_info.get("marginr", 10))
+
+        if align in (1, 4, 7):
+            ax = ml
+        elif align in (3, 6, 9):
+            ax = play_w - mr
+        else:
+            ax = (ml + play_w - mr) // 2
+        if align in (7, 8, 9):
+            ay = mv
+        elif align in (4, 5, 6):
+            ay = play_h // 2
+        else:
+            ay = play_h - mv
+        anchor = f"\\an{align}\\pos({ax},{ay})"
+
+        # Approximate text box (the converter maps the gradient over the real fill mask).
         if align in (7, 8, 9):
             y0 = max(0, int(mv - fs * 0.2))
             y1 = min(play_h, int(mv + fs * 1.45))
@@ -296,44 +369,40 @@ def expand_ass_vc_for_libass(ass_content: str) -> str:
             y0 = max(0, int(play_h - mv - fs * 1.35))
         if y1 <= y0 + 4:
             y0, y1 = 0, play_h
-
         plain_chars = re.sub(r"\{[^}]*\}", "", clean_text)
         est_w = sum(fs if ord(ch) > 0x2E7F else fs * 0.55 for ch in plain_chars)
         half_w = max(int(fs * 1.5), min(play_w // 2, int(est_w * 0.58 + fs)))
         x0 = max(0, play_w // 2 - half_w)
         x1 = min(play_w, play_w // 2 + half_w)
 
-        # 1) Base pass: outline + shadow only (transparent primary fill)
+        key = next_key()
         base_parts = list(parts)
-        base_parts[layer_idx] = str(base_layer * 2)
-        base_parts[text_idx] = _inject_leading_tags(clean_text, "\\1a&HFF&")
-        out_lines.append("Dialogue: " + ",".join(base_parts))
+        base_parts[text_idx] = _inject_leading_tags(clean_text, anchor + "\\1a&HFF&")
+        base_events.append("Dialogue: " + ",".join(base_parts))
 
-        # 2) Fill slices: no outline, no shadow, exact integer rectangular clips
-        is_vert = tl == tr and bl == br
-        is_horiz = tl == bl and tr == br
-        nx, ny = (1, 10) if is_vert else ((10, 1) if is_horiz else (6, 3))
+        fill_parts = list(parts)
+        fill_parts[layer_idx] = "0"
+        fill_parts[text_idx] = _inject_leading_tags(
+            clean_text,
+            anchor
+            + "\\1a&H00&\\3a&HFF&\\4a&HFF&\\bord0\\shad0\\blur0\\1c"
+            + rgb_to_ass_bgr(*key),
+        )
+        fill_events.append("Dialogue: " + ",".join(fill_parts))
+        specs.append(
+            {
+                "key": key,
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "corners": (tl, tr, bl, br),
+            }
+        )
 
-        xs = [round(x0 + (x1 - x0) * i / nx) for i in range(nx + 1)]
-        xs[0], xs[-1] = 0, play_w  # outer slices extend to edges so wrapped/wide lines are never clipped!
-        ys = [round(y0 + (y1 - y0) * j / ny) for j in range(ny + 1)]
-        ys[0], ys[-1] = 0, play_h
+    if not specs:
+        return ass_content, "", [], play_w, play_h
 
-        for j in range(ny):
-            cy0, cy1 = ys[j], ys[j + 1]
-            if cy1 <= cy0:
-                continue
-            v = (j + 0.5) / ny
-            for i in range(nx):
-                cx0, cx1 = xs[i], xs[i + 1]
-                if cx1 <= cx0:
-                    continue
-                u = (i + 0.5) / nx
-                col = _bilerp_bgr(tl, tr, bl, br, u, v)
-                fill_parts = list(parts)
-                fill_parts[layer_idx] = str(base_layer * 2 + 1)
-                slice_tag = f"\\1a&H00&\\3a&HFF&\\4a&HFF&\\bord0\\shad0\\blur0\\1c{col}\\clip({cx0},{cy0},{cx1},{cy1})"
-                fill_parts[text_idx] = _inject_leading_tags(clean_text, slice_tag)
-                out_lines.append("Dialogue: " + ",".join(fill_parts))
-
-    return "\n".join(out_lines) + ("\n" if ass_content.endswith("\n") else "")
+    base_ass = "\n".join(header_lines + ["[Events]", events_format] + base_events) + "\n"
+    fill_ass = "\n".join(header_lines + ["[Events]", events_format] + fill_events) + "\n"
+    return base_ass, fill_ass, specs, play_w, play_h

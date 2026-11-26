@@ -28,10 +28,10 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "us_drama_default",
         "name": "美剧双语经典 (默认)",
-        "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，紧凑行距、93%窄字宽与柔边羽化(\\blur2)",
+        "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，可见像素行距、93%窄字宽与柔边羽化(\\blur2)",
         "order": "zh_top",
         "margin_v": 15,
-        "line_gap": 7,
+        "line_gap": 13,
         "blur": 2.0,
         "ycbcr_matrix": "None",
         "box_mode": False,
@@ -1720,9 +1720,15 @@ def export_ass(
     title: str = "Default Aegisub file",
     *,
     include_fades: bool = True,
+    ink: list[Any] | None = None,
 ) -> str:
     """
     Compile subtitles, per-cue styles and tracked positions into a 1920x1080 ASS file.
+
+    `ink` optionally carries, per cue, the `[lowerTop, upperBottom]` ink padding measured
+    by the preview for the fonts it actually draws with. The two-line layout uses it to
+    keep `line_gap` a real visible distance; without it the exporter falls back to a
+    font-ratio approximation.
     """
     ycbcr_matrix = str(style.get("ycbcr_matrix", "None"))
     base_zh = style.get("zh", {})
@@ -1751,6 +1757,10 @@ def export_ass(
                 width_est += fsize * 0.52 * sx_factor
         return max(1, int(math.ceil(width_est / avail_w)))
 
+    def box_outline(cfg: dict[str, Any]) -> float:
+        """BorderStyle 3 draws the box padding-sized border around each text line."""
+        return max(6.0, float(cfg.get("outline", 2.0)) * 3.0)
+
     def style_fields(cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2) -> str:
         font = str(cfg.get("font", "WenQuanYi Micro Hei")).replace(",", " ")
         size = int(round(float(cfg.get("size", 70))))
@@ -1762,7 +1772,7 @@ def export_ass(
             box_opacity = float(layout.get("box_opacity", 0.6))
             out_color = hex_to_ass_color(box_color, box_opacity)
             back_color = hex_to_ass_color(box_color, box_opacity)
-            outline = max(6.0, float(cfg.get("outline", 2.0)) * 3.0)
+            outline = box_outline(cfg)
             shadow = 0.0
         else:
             out_color = hex_to_ass_color(cfg.get("outline_color", "#000000"), 1.0)
@@ -1813,7 +1823,7 @@ def export_ass(
         return txt.replace("\r\n", " ").replace("\n", " ").strip()
 
     events: list[str] = []
-    for item in subtitles:
+    for idx, item in enumerate(subtitles):
         zh = esc_ass(item.get("zh") or "")
         en = esc_ass(item.get("en") or "")
         tracked = bool(item.get("motion"))
@@ -1826,7 +1836,6 @@ def export_ass(
         bot_mv = max(0, int(layout.get("margin_v", 15)))
         line_gap = int(round(float(layout.get("line_gap", 4))))
         box_mode = bool(layout.get("box_mode"))
-        box_pad = 12 if box_mode else 0
         blur_val = float(layout.get("blur", 2.0))
         blur_tag = f"\\blur{fmt_num(blur_val)}" if not box_mode and blur_val > 0 else ""
 
@@ -1898,54 +1907,52 @@ def export_ass(
                 en_scale_x = float(en_cfg.get("scale_x", 95))
                 zh_margin_lr = int(zh_cfg.get("margin_l", 10)) + int(zh_cfg.get("margin_r", 11))
                 en_margin_lr = int(en_cfg.get("margin_l", 15)) + int(en_cfg.get("margin_r", 15))
-                # Emit independent Layer 1 (upper) + Layer 0 (lower) events so libass/VSFilter/PGS
-                # honor exact 1px positive, zero, or negative line_gap without collision flipping!
+                # Aegisub has no vertical line-spacing parameter (its “Spacing” is
+                # horizontal letter spacing), so `line_gap` is the visible gap between the
+                # two lines' ink.  The preview measures each line's ink padding for the
+                # fonts it draws with and passes it in; without that hint fall back to the
+                # old 0.75/0.86 font-ratio approximation, which targets the same distance.
                 if order == "zh_top":
-                    bot_lines = estimate_wrapped_lines(en, en_size_val, en_scale_x, en_margin_lr)
-                    top_mv = max(
-                        0,
-                        int(
-                            round(
-                                bot_mv
-                                + 0.75 * en_size_val
-                                + (bot_lines - 1) * en_size_val
-                                - 0.10 * zh_size_val
-                                + box_pad
-                                + line_gap
-                            )
-                        ),
-                    )
-                    upper_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
-                    lower_prefix = wrap_tags(fade_tag, blur_tag, sub_anim_tag, en_grad_tag)
-                    events.append(
-                        f"Dialogue: 1,{start_str},{end_str},{zh_style_name},,0,0,{top_mv},,{upper_prefix}{zh}"
-                    )
-                    events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{lower_prefix}{en}"
+                    upper_text, lower_body = zh, en
+                    upper_cfg, lower_cfg = zh_cfg, en_cfg
+                    upper_grad, lower_grad = zh_grad_tag, en_grad_tag
+                    upper_name, lower_name = zh_style_name, en_style_name
+                    lower_size, lower_scale_x, lower_margin_lr = en_size_val, en_scale_x, en_margin_lr
+                else:
+                    upper_text, lower_body = en, zh
+                    upper_cfg, lower_cfg = en_cfg, zh_cfg
+                    upper_grad, lower_grad = en_grad_tag, zh_grad_tag
+                    upper_name, lower_name = en_style_name, zh_style_name
+                    lower_size, lower_scale_x, lower_margin_lr = zh_size_val, zh_scale_x, zh_margin_lr
+                lower_lines = estimate_wrapped_lines(lower_body, lower_size, lower_scale_x, lower_margin_lr)
+                if box_mode:
+                    # Measure between the drawn boxes, whose borders add to the padding.
+                    top_mv = (
+                        bot_mv
+                        + lower_lines * lower_size
+                        + line_gap
+                        + box_outline(upper_cfg)
+                        + box_outline(lower_cfg)
                     )
                 else:
-                    bot_lines = estimate_wrapped_lines(zh, zh_size_val, zh_scale_x, zh_margin_lr)
-                    top_mv = max(
-                        0,
-                        int(
-                            round(
-                                bot_mv
-                                + 0.86 * zh_size_val
-                                + (bot_lines - 1) * zh_size_val
-                                - 0.02 * en_size_val
-                                + box_pad
-                                + line_gap
-                            )
-                        ),
-                    )
-                    upper_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
-                    lower_prefix = wrap_tags(fade_tag, blur_tag, sub_anim_tag, zh_grad_tag)
-                    events.append(
-                        f"Dialogue: 1,{start_str},{end_str},{en_style_name},,0,0,{top_mv},,{upper_prefix}{en}"
-                    )
-                    events.append(
-                        f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{lower_prefix}{zh}"
-                    )
+                    hint = ink[idx] if ink is not None and idx < len(ink) else None
+                    if isinstance(hint, (list, tuple)) and len(hint) == 2:
+                        top_mv = bot_mv + lower_lines * lower_size - float(hint[0]) - float(hint[1]) + line_gap + 1
+                    elif order == "zh_top":
+                        upper_size_val = float(zh_cfg.get("size", 70))
+                        top_mv = bot_mv + lower_lines * lower_size - 0.25 * lower_size - 0.10 * upper_size_val + line_gap
+                    else:
+                        upper_size_val = float(en_cfg.get("size", 47))
+                        top_mv = bot_mv + lower_lines * lower_size - 0.14 * lower_size - 0.02 * upper_size_val + line_gap
+                top_mv = max(0, int(round(top_mv)))
+                upper_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, upper_grad)
+                lower_prefix = wrap_tags(fade_tag, blur_tag, sub_anim_tag, lower_grad)
+                events.append(
+                    f"Dialogue: 1,{start_str},{end_str},{upper_name},,0,0,{top_mv},,{upper_prefix}{upper_text}"
+                )
+                events.append(
+                    f"Dialogue: 0,{start_str},{end_str},{lower_name},,0,0,{bot_mv},,{lower_prefix}{lower_body}"
+                )
             elif zh:
                 zh_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
                 events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{zh_prefix}{zh}")

@@ -1053,6 +1053,7 @@ class DesktopBridgeApi:
         subtitles: list[dict[str, Any]],
         style: dict[str, Any],
         default_stem: str = "双语字幕",
+        ink: list[Any] | None = None,
     ) -> dict[str, Any]:
         """
         fmt: 'ass' | 'srt' | 'project'
@@ -1098,7 +1099,7 @@ class DesktopBridgeApi:
 
         try:
             if fmt == "ass":
-                content = export_ass(subtitles, style=style, lang_mode=lang_mode, title=stem)
+                content = export_ass(subtitles, style=style, lang_mode=lang_mode, title=stem, ink=ink)
                 # UTF-8 with BOM ensures 100% Chinese compatibility in PotPlayer, MPC-HC, Aegisub & Windows
                 out_path.write_text(content, encoding="utf-8-sig")
             elif fmt == "srt":
@@ -1123,6 +1124,7 @@ class DesktopBridgeApi:
         resolution: str = "1080p",
         fps: str = "23.976",
         default_stem: str = "双语字幕",
+        ink: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Export current editor subtitles + style directly into a Blu-ray PGS .sup file."""
         if not STATE.window:
@@ -1171,6 +1173,7 @@ class DesktopBridgeApi:
                     fps=fps,
                     title=stem,
                     progress=lambda msg, pct: STATE.set_task(True, msg, pct),
+                    ink=ink,
                 )
                 STATE.set_task(
                     False,

@@ -6,6 +6,8 @@ import { closeModal, openModal, toast, withBusy } from "./feedback.js";
 import { call } from "./bridge.js";
 import { bindSeg } from "./controls.js";
 import { followTask, taskRunning } from "./tasks.js";
+import { gapHint } from "./subs-render.js";
+import { resolveCueStyle } from "./cue-style.js";
 
 const LANG_LABEL = { bilingual: "双语", zh_only: "仅中文", en_only: "仅英文" };
 let lang = "bilingual";
@@ -36,10 +38,22 @@ function celebrate() {
   cheerTimer = setTimeout(() => btn.classList.remove("done"), 2200);
 }
 
+/**
+ * The preview measures each line's ink padding for the fonts it actually draws with;
+ * hand the exporter the same numbers so `中英间距` stays the visible pixel gap it shows.
+ */
+function collectInk() {
+  return state.subtitles.map((cue) => {
+    if (cue.pos === "top" || Array.isArray(cue.motion)) return null;
+    return gapHint(resolveCueStyle(state.style, cue), cue.zh, cue.en);
+  });
+}
+
 async function doExport(fmt, btn) {
   return withBusy(btn, async () => {
     if (!state.subtitles.length) return toast("还没有字幕可以导出");
-    const res = await call("export_subtitle_dialog", fmt, fmt === "project" ? "bilingual" : lang, state.subtitles, state.style, state.videoStem);
+    const ink = fmt === "ass" ? collectInk() : null;
+    const res = await call("export_subtitle_dialog", fmt, fmt === "project" ? "bilingual" : lang, state.subtitles, state.style, state.videoStem, ink);
     if (res.ok) {
       closeModal("modalExport");
       celebrate();
@@ -102,7 +116,7 @@ export function initExporter() {
   byId("btnSupCurrent").addEventListener("click", (e) => {
     if (!state.subtitles.length) return toast("还没有字幕可以压制");
     return runSup(e.currentTarget, (res, fps) =>
-      call("export_current_to_sup_dialog", byId("supLang").value, state.subtitles, state.style, res, fps, state.videoStem),
+      call("export_current_to_sup_dialog", byId("supLang").value, state.subtitles, state.style, res, fps, state.videoStem, collectInk()),
     );
   });
 }

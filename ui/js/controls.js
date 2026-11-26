@@ -41,7 +41,7 @@ export function bindSeg(root, onChange, attr = "aria-checked") {
 }
 
 /* ---------- fader: slider + typed value ---------- */
-export function makeFader({ label, min, max, step = 1, unit = "", onInput }) {
+export function makeFader({ label, min, max, step = 1, unit = "", onInput, tip = "" }) {
   const range = h("input", { class: "range", type: "range", min: String(min), max: String(max), step: String(step), "aria-label": label });
   const num = h("input", { class: "fader-num", type: "number", min: String(min), max: String(max), step: String(step), "aria-label": `${label}数值` });
   const decimals = (String(step).split(".")[1] || "").length;
@@ -50,7 +50,7 @@ export function makeFader({ label, min, max, step = 1, unit = "", onInput }) {
   const root = h(
     "div",
     { class: "fader" },
-    h("div", { class: "fader-head" }, h("span", {}, label + (unit ? ` ${unit}` : "")), num),
+    h("div", { class: "fader-head" }, h("span", tip ? { "data-tip": tip } : {}, label + (unit ? ` ${unit}` : "")), num),
     range,
   );
   const fill = () => range.style.setProperty("--p", `${((Number(range.value) - min) / (max - min)) * 100}%`);

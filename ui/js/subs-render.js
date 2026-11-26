@@ -152,20 +152,127 @@ function estimateLines(text, size, scaleX, marginLR) {
   return Math.max(1, Math.ceil(w / avail));
 }
 
-function upperMargin(style, lowerText, lowerIsEn) {
-  const mv = Math.trunc(num(style.margin_v, 15));
-  const gap = Math.round(num(style.line_gap, 4));
-  const zhSize = num(style.zh?.size, 70);
-  const enSize = num(style.en?.size, 47);
-  const pad = style.box_mode ? 12 : 0;
-  if (lowerIsEn) {
-    const lr = Math.trunc(num(style.en?.margin_l, 15)) + Math.trunc(num(style.en?.margin_r, 15));
-    const n = estimateLines(lowerText, enSize, num(style.en?.scale_x, 95), lr);
-    return Math.max(0, Math.round(mv + 0.75 * enSize + (n - 1) * enSize - 0.1 * zhSize + pad + gap));
+/** BorderStyle 3 pads the drawn box by the same value the exporter writes as Outline. */
+function boxOutline(cfg = {}) {
+  return Math.max(6, num(cfg.outline, 2) * 3);
+}
+
+/* ---------- visible line gap ---------- */
+
+const gapMetricsCache = new Map();
+
+/** The line box the renderer will use: font size normalised to ascent + descent. */
+function gapMetrics(cfg = {}) {
+  const weight = cfg.bold ? 700 : 400;
+  const stack = fontStack(cfg.font || "Microsoft YaHei");
+  const size = num(cfg.size, 60);
+  const key = `${weight}|${cfg.italic ? 1 : 0}|${stack}|${size}`;
+  let m = gapMetricsCache.get(key);
+  if (!m) {
+    const fm = metrics(stack, weight, cfg.italic);
+    const em = Math.max(0.01, size / fm.sum);
+    m = { em, stack, weight, italic: Boolean(cfg.italic), asc: fm.asc * em, desc: fm.desc * em };
+    gapMetricsCache.set(key, m);
   }
-  const lr = Math.trunc(num(style.zh?.margin_l, 10)) + Math.trunc(num(style.zh?.margin_r, 11));
-  const n = estimateLines(lowerText, zhSize, num(style.zh?.scale_x, 93), lr);
-  return Math.max(0, Math.round(mv + 0.86 * zhSize + (n - 1) * zhSize - 0.02 * enSize + pad + gap));
+  return m;
+}
+
+/** Distance from a line's box top (or bottom) to where its ink starts. */
+const rasterInkCache = new Map();
+
+/** Rasterise a sample and return its real ink extents around the baseline. */
+function rasterInk(cfg, sample) {
+  const m = gapMetrics(cfg);
+  const key = `${m.stack}|${m.weight}|${m.italic}|${m.em}|${sample}`;
+  const cached = rasterInkCache.get(key);
+  if (cached) return cached;
+  const baseline = Math.ceil(m.asc) + 8;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(32, Math.ceil(m.em * sample.length * 1.3 + 24));
+  canvas.height = Math.ceil(m.asc + m.desc + 20);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.font = `${m.italic ? "italic " : ""}${m.weight} ${m.em}px ${m.stack}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(sample, 8, baseline);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let top = -1;
+  let bottom = -1;
+  for (let y = 0; y < canvas.height; y++) {
+    let on = false;
+    const off = y * canvas.width * 4;
+    for (let x = 0; x < canvas.width; x++) {
+      if (data[off + x * 4 + 3] > 96) {
+        on = true;
+        break;
+      }
+    }
+    if (on) {
+      if (top < 0) top = y;
+      bottom = y;
+    }
+  }
+  const ink = top < 0 ? { ascent: 0, descent: 0 } : { ascent: baseline - top, descent: bottom - baseline };
+  rasterInkCache.set(key, ink);
+  return ink;
+}
+
+/** Distance from a line's box top (or bottom) to where its ink starts. */
+function inkOffset(cfg, sample, edge) {
+  const m = gapMetrics(cfg);
+  const ink = rasterInk(cfg, sample);
+  return edge === "top" ? m.asc - ink.ascent : m.desc - ink.descent;
+}
+
+/**
+ * Ink correction for the two-line block, in script pixels: [lower top, upper bottom].
+ * Aegisub has no vertical line-spacing parameter (its “Spacing” is horizontal letter
+ * spacing), so the app defines the slider as the visible gap between the two lines and
+ * sends the exporter the same correction the preview uses. The correction comes from
+ * rasterised representative glyphs, so it follows the renderer's real ink rather than
+ * the font's nominal ascent/descent.
+ */
+export function gapHint(style, zhText, enText) {
+  const zh = String(zhText ?? "").trim();
+  const en = String(enText ?? "").trim();
+  const lowerIsEn = style?.order !== "en_top";
+  const lowerText = lowerIsEn ? en : zh;
+  const upperText = lowerIsEn ? zh : en;
+  if (!lowerText || !upperText) return null;
+  const lowerCfg = (lowerIsEn ? style.en : style.zh) ?? {};
+  const upperCfg = (lowerIsEn ? style.zh : style.en) ?? {};
+  const lowerSample = lowerIsEn ? "Hhbdk" : "国永";
+  const upperSample = lowerIsEn ? "国永" : "gypq";
+  return [inkOffset(lowerCfg, lowerSample, "top"), inkOffset(upperCfg, upperSample, "bottom")];
+}
+
+/**
+ * Upper event's MarginV, in script pixels. `line_gap` is the visible gap between the two
+ * lines' ink; the ink padding of each line comes from the font the preview draws with,
+ * so the number stays a real pixel distance instead of adding the font's built-in air.
+ * BorderStyle 3 measures between the drawn boxes instead.
+ */
+function upperMargin(style, zhText, enText, lowerIsEn) {
+  const mv = Math.max(0, Math.trunc(num(style.margin_v, 15)));
+  const gap = Math.round(num(style.line_gap, 4));
+  const lowerCfg = (lowerIsEn ? style.en : style.zh) ?? {};
+  const upperCfg = (lowerIsEn ? style.zh : style.en) ?? {};
+  const size = num(lowerCfg.size, lowerIsEn ? 47 : 70);
+  const lr = lowerIsEn
+    ? Math.trunc(num(lowerCfg.margin_l, 15)) + Math.trunc(num(lowerCfg.margin_r, 15))
+    : Math.trunc(num(lowerCfg.margin_l, 10)) + Math.trunc(num(lowerCfg.margin_r, 11));
+  const lowerText = lowerIsEn ? enText : zhText;
+  const n = estimateLines(lowerText, size, num(lowerCfg.scale_x, lowerIsEn ? 95 : 93), lr);
+  if (style.box_mode) {
+    const pad = boxOutline(style.zh) + boxOutline(style.en);
+    return Math.max(0, Math.round(mv + n * size + gap + pad));
+  }
+  const hint = gapHint(style, zhText, enText);
+  const upperSize = num(upperCfg.size, lowerIsEn ? 70 : 47);
+  const t = hint ? hint[0] : 0.25 * size;
+  const b = hint ? hint[1] : 0.1 * upperSize;
+  return Math.max(0, Math.round(mv + n * size - t - b + gap + 1));
 }
 
 /** How much of the frame's usable width this line takes (1 = exactly one full line). */
@@ -358,7 +465,7 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
 
   if (zh && en) {
     const lowerIsEn = zhTop;
-    const upperMv = upperMargin(style, lowerIsEn ? en : zh, lowerIsEn);
+    const upperMv = upperMargin(style, zh, en, lowerIsEn);
     // Layer 0 (lower line) first, then Layer 1 (upper line), as libass composites them.
     const lower = drawEvent(ctx, lowerIsEn ? en : zh, lowerIsEn ? style.en : style.zh, opt(mv, subKin));
     const upper = drawEvent(ctx, lowerIsEn ? zh : en, lowerIsEn ? style.zh : style.en, opt(upperMv, mainKin));
