@@ -140,7 +140,7 @@ def build_ass_anim_tag(anim_id: Any, anim_mult: Any = 1.0) -> str:
     return ""
 
 
-def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dict[str, Any]]]:
+def parse_ass_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dict[str, Any]]]:
     play_w, play_h = 1920, 1080
     styles: dict[str, dict[str, Any]] = {}
     section = ""
@@ -165,7 +165,7 @@ def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dic
                     play_h = max(240, int(line.split(":", 1)[1].strip()))
                 except ValueError:
                     pass
-        elif section in ("[v4+ styles]", "[v4 styles]"):
+        elif section in ("[v4+ styles]", "[v4 styles]", "[v4++ styles]"):
             if line.lower().startswith("format:"):
                 style_fields = [f.strip().lower() for f in line.split(":", 1)[1].split(",")]
             elif line.lower().startswith("style:") and style_fields:
@@ -190,6 +190,7 @@ def _parse_playres_and_styles(ass_content: str) -> tuple[int, int, dict[str, dic
                     except ValueError:
                         mr = 10
                     styles[name] = {
+                        "fontname": row.get("fontname", ""),
                         "marginv": mv,
                         "alignment": align,
                         "marginl": ml,
@@ -234,7 +235,7 @@ def split_ass_vc_for_pgs(
 
     from core.subtitles import format_ass_timestamp
 
-    play_w, play_h, styles = _parse_playres_and_styles(ass_content)
+    play_w, play_h, styles = parse_ass_playres_and_styles(ass_content)
     header_lines: list[str] = []
     base_events: list[str] = []
     fill_events: list[str] = []

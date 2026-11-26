@@ -1,8 +1,7 @@
 """
 ASS to Blu-ray HDMV PGS (.sup) Graphic Subtitle Encoder Engine.
-Uses FFmpeg's built-in libass renderer for 100% authentic vector/tag/blur rendering,
-splits VSFilterMod \\1vc gradients into isolated glyph masks and applies the bilinear
-gradient on the CPU, then quantizes with Pillow FASTOCTREE and encodes Blu-ray PGS RLE.
+Renders with libass or VSFilterMod, then quantizes with Pillow FASTOCTREE
+and encodes Blu-ray PGS RLE.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ import re
 import struct
 import subprocess
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +25,7 @@ from core.subtitles import (
     parse_ass_timestamp,
     read_text_auto_encoding,
 )
+from core.windows_ass_fonts import missing_ass_fonts
 
 ProgressCallback = Callable[[str, int], None]
 WIN_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -48,6 +49,69 @@ PGS_FPS_VALUES: dict[str, float] = {
 }
 
 FAD_TAG_RE = re.compile(r"\\fade?\([^)]*\)", re.IGNORECASE)
+NATIVE_GRADIENT_RE = re.compile(r"\\[1-4]vc\s*\(", re.IGNORECASE)
+
+
+def validate_vsfiltermod_dll(path: str | Path | None) -> Path:
+    if os.name != "nt":
+        raise ValueError("VSFilterMod 需要 Windows 和 AviSynth+。")
+    if not path:
+        raise ValueError("请先选择 VSFilterMod.dll。")
+    dll = Path(path).resolve()
+    if dll.suffix.lower() != ".dll" or not dll.is_file():
+        raise ValueError("找不到 VSFilterMod.dll，请重新选择插件。")
+    if any(char in str(dll) for char in ('"', "\r", "\n")):
+        raise ValueError("VSFilterMod.dll 的路径包含 AviSynth 无法读取的字符。")
+    return dll
+
+
+def _vsfiltermod_command(
+    work_dir: Path, dll: Path, width: int, height: int, frames: int
+) -> list[str]:
+    script = work_dir / "pgs_render.avs"
+    # Use an ASCII basename for the ASS path. Older plugins read it as ANSI.
+    # MaskSubMod returns straight alpha and already expands the RGB channels.
+    # MaskSubMod writes a top-down mask into an AviSynth bottom-up RGB32 clip.
+    mask = (
+        f'MaskSubMod("pgs_render.ass", {width}, {height}, 1.0, {frames + 1})'
+        f".Trim(1, {frames}).FlipVertical()"
+    )
+    try:
+        script.write_text(f'ClearAutoloadDirs()\nLoadPlugin("{dll}")\n{mask}\n', encoding="mbcs")
+    except UnicodeEncodeError:
+        script.write_text(
+            f'ClearAutoloadDirs()\nLoadPlugin("{dll}", utf8=true)\n{mask}\n', encoding="utf-8"
+        )
+    return [
+        "ffmpeg", "-nostdin", "-v", "error", "-f", "avisynth", "-i", script.name,
+        "-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+    ]
+
+
+def _stop_renderer(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        process.kill()
+    process.wait()
+    if process.stdout is not None:
+        process.stdout.close()
+
+
+def _check_renderer(process: subprocess.Popen, log: Any, renderer: str) -> None:
+    if process.wait(timeout=15) == 0:
+        return
+    log.seek(0)
+    error = log.read(1200).decode("utf-8", errors="replace").strip()
+    if renderer == "VSFilterMod":
+        if "Unknown input format" in error:
+            hint = "请使用支持 AviSynth 输入的 FFmpeg。"
+        elif "AviSynth library" in error or "avisynth.dll" in error.lower():
+            hint = "请安装与 FFmpeg 位数一致的 AviSynth+。"
+        else:
+            hint = "请确认所选 VSFilterMod.dll 支持 AviSynth+，且与 FFmpeg 位数一致。"
+            if "Cannot load file" in error:
+                hint += "旧版 AviSynth+ 可尝试将插件放在英文路径下。"
+        raise RuntimeError(f"VSFilterMod 渲染失败。{hint}\n{error}")
+    raise RuntimeError(f"{renderer} 渲染失败（退出码 {process.returncode}）。\n{error}")
 
 
 def _read_exact(stream: Any, n: int) -> bytes:
@@ -248,8 +312,41 @@ def _extract_subtitle_regions(frame_rgba: np.ndarray) -> list[tuple[int, int, np
     return regions
 
 
+def _quantize_rgba(
+    rgba: np.ndarray, *, preserve_fill: bool
+) -> tuple[np.ndarray, list[int]]:
+    fill = rgba[:, :, 3] >= 244 if preserve_fill else None
+    if fill is None or not fill.any():
+        indexed = Image.fromarray(rgba).quantize(colors=254, method=Image.Quantize.FASTOCTREE)
+        return np.asarray(indexed), indexed.getpalette("RGBA") or []
+
+    # Octree quantization shares its colors between visible fill and many edge
+    # opacities. Give near-opaque fills independent RGB bins to keep subtle gradients.
+    fill_pixels = rgba[fill]
+    indexed_fill = Image.fromarray(fill_pixels[:, None, :3]).quantize(
+        colors=128, method=Image.Quantize.MEDIANCUT
+    )
+    fill_indices = np.asarray(indexed_fill).ravel()
+    fill_colors = np.asarray(indexed_fill.getpalette("RGB"), dtype=np.uint8).reshape(-1, 3)
+    color_count = len(fill_colors)
+    counts = np.bincount(fill_indices, minlength=color_count)
+    sums = np.bincount(fill_indices, weights=fill_pixels[:, 3], minlength=color_count)
+    alpha = np.rint(sums / np.maximum(counts, 1)).astype(np.uint8)
+    palette = np.column_stack((fill_colors, alpha)).ravel().tolist()
+
+    indices = np.empty(rgba.shape[:2], dtype=np.uint8)
+    indices[fill] = fill_indices
+    if not fill.all():
+        indexed_edges = Image.fromarray(rgba[~fill][:, None, :]).quantize(
+            colors=254 - color_count, method=Image.Quantize.FASTOCTREE
+        )
+        indices[~fill] = np.asarray(indexed_edges).ravel() + color_count
+        palette.extend(indexed_edges.getpalette("RGBA") or [])
+    return indices, palette
+
+
 def _quantize_regions_shared_palette(
-    regions: list[tuple[int, int, np.ndarray]]
+    regions: list[tuple[int, int, np.ndarray]], *, preserve_fill: bool = False
 ) -> tuple[list[tuple[int, int, int, int]], list[tuple[int, int, int, int, bytes]]]:
     """
     Quantize 1 or 2 cropped RGBA regions into a single shared 256-entry RGBA palette
@@ -272,10 +369,7 @@ def _quantize_regions_shared_palette(
             slices.append((x0, y0, cw, ch, cy, cy + ch))
             cy += ch
 
-    pil_img = Image.fromarray(composite, mode="RGBA")
-    quantized = pil_img.quantize(colors=254, method=Image.Quantize.FASTOCTREE)
-    raw_pal = quantized.getpalette("RGBA") or []
-    idx_arr = np.array(quantized, dtype=np.uint8)
+    idx_arr, raw_pal = _quantize_rgba(composite, preserve_fill=preserve_fill)
 
     # Remap so index 0 is strictly transparent (0,0,0,0) and active colors start at 1..255
     used_indices = np.unique(idx_arr)
@@ -443,9 +537,7 @@ def _parse_ass_into_render_intervals(ass_content: str) -> tuple[str, str, list[d
             continue
         if stripped.startswith("[") and stripped.endswith("]"):
             in_garbage = False
-            if in_events:
-                in_events = False
-                continue
+            in_events = False
 
         if in_garbage:
             continue
@@ -533,12 +625,19 @@ def convert_ass_content_to_sup(
     resolution: str = "1080p",
     fps: str = "23.976",
     progress: ProgressCallback | None = None,
+    *,
+    renderer: str = "libass",
+    vsfiltermod_dll: str | Path | None = None,
 ) -> dict[str, Any]:
     """
     Render an ASS subtitle string into a Blu-ray PGS (.sup) binary file!
     resolution: '1080p' (1920x1080) | '4k' (3840x2160) | '720p' (1280x720)
     fps: '23.976' | '24' | '25' | '29.97' | '50' | '59.94'
     """
+    if renderer not in {"libass", "vsfiltermod"}:
+        raise ValueError("无法识别 SUP 渲染引擎。")
+    dll = validate_vsfiltermod_dll(vsfiltermod_dll) if renderer == "vsfiltermod" else None
+    renderer_name = "VSFilterMod" if dll else "FFmpeg libass"
     res_map = {
         "720p": (1280, 720),
         "1080p": (1920, 1080),
@@ -553,11 +652,17 @@ def convert_ass_content_to_sup(
     if not intervals:
         raise ValueError("ASS 字幕中没有检测到任何有效时间轴对白行，无法生成 SUP。")
 
+    missing_fonts = []
+    if dll:
+        missing_fonts = missing_ass_fonts(
+            header_block, events_fmt_line,
+            (event["parts"] for interval in intervals for event in interval["active"]),
+        )
     total = len(intervals)
     if progress:
-        progress(f"共解析 {total} 个字幕画面区间，正在准备 libass 矢量渲染…", 6)
+        progress(f"共解析 {total} 个字幕画面区间，正在准备 {renderer_name} 渲染…", 6)
 
-    with tempfile.TemporaryDirectory(prefix="easysub_pgs_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="easysub_pgs_") as tmp_dir, ExitStack() as cleanup:
         tmp_path = Path(tmp_dir)
         synthetic_ass = tmp_path / "pgs_render.ass"
 
@@ -580,14 +685,18 @@ def convert_ass_content_to_sup(
             + "\n".join(synth_event_lines)
             + "\n"
         )
-        base_ass, fill_ass, gradients = split_ass_vc_for_pgs(full_synth_ass)
+        if dll:
+            base_ass, fill_ass, gradients = full_synth_ass, "", {}
+        else:
+            base_ass, fill_ass, gradients = split_ass_vc_for_pgs(full_synth_ass)
         mask_count = sum(len(corners) for corners in gradients.values())
+        preserve_fill = bool(dll and NATIVE_GRADIENT_RE.search(base_ass))
         synthetic_ass.write_text(base_ass, encoding="utf-8-sig")
         fill_ass_path = tmp_path / "pgs_fill.ass"
         if fill_ass:
             fill_ass_path.write_text(fill_ass, encoding="utf-8-sig")
 
-        def render_cmd(ass_name: str, frames: int, *, mask: bool = False) -> list[str]:
+        def libass_command(ass_name: str, frames: int, *, mask: bool = False) -> list[str]:
             video_filter = f"subtitles={ass_name}:alpha=1,trim=start_frame=1:end_frame={frames + 1}"
             if mask:
                 video_filter += ",alphaextract"
@@ -613,150 +722,139 @@ def convert_ass_content_to_sup(
         frame_byte_len = mask_byte_len * 4
         out_path = Path(out_sup_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        staging_dir = cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix=".easysub_pgs_", dir=out_path.parent)
+        )
+        staged_sup = Path(staging_dir) / "output.sup"
 
         comp_num = 0
         last_pts_ticks = -1
         written_events = 0
         last_objects: list[tuple[int, int, int, int, bytes]] = []
 
-        base_proc = subprocess.Popen(
-            render_cmd(synthetic_ass.name, total),
-            cwd=str(tmp_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=WIN_NO_WINDOW,
-        )
-        fill_proc = (
-            subprocess.Popen(
-                render_cmd(fill_ass_path.name, mask_count, mask=True),
+        def start_renderer(command: list[str]):
+            # A noisy renderer must not block while the converter reads raw frames.
+            log = cleanup.enter_context(tempfile.TemporaryFile())
+            process = subprocess.Popen(
+                command,
                 cwd=str(tmp_path),
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=log,
                 creationflags=WIN_NO_WINDOW,
             )
-            if fill_ass
-            else None
-        )
-        procs = [base_proc] + ([fill_proc] if fill_proc is not None else [])
+            cleanup.callback(_stop_renderer, process)
+            return process, log
 
-        try:
-            try:
-                with out_path.open("wb") as sup_file:
-                    assert base_proc.stdout is not None
-                    for k, iv in enumerate(intervals):
-                        raw_frame = _read_exact(base_proc.stdout, frame_byte_len)
-                        if len(raw_frame) < frame_byte_len:
-                            raise RuntimeError("FFmpeg 渲染输出提前结束，SUP 可能不完整。")
-                        frame_arr = _unpremultiply_rgba(
-                            np.frombuffer(raw_frame, dtype=np.uint8).reshape(
-                                (canvas_h, canvas_w, 4)
+        base_command = (
+            _vsfiltermod_command(tmp_path, dll, canvas_w, canvas_h, total)
+            if dll else libass_command(synthetic_ass.name, total)
+        )
+        base_proc, base_log = start_renderer(base_command)
+        fill_proc, fill_log = (
+            start_renderer(libass_command(fill_ass_path.name, mask_count, mask=True))
+            if fill_ass else (None, None)
+        )
+
+        with staged_sup.open("wb") as sup_file:
+            assert base_proc.stdout is not None
+            for k, iv in enumerate(intervals):
+                raw_frame = _read_exact(base_proc.stdout, frame_byte_len)
+                if len(raw_frame) < frame_byte_len:
+                    _check_renderer(base_proc, base_log, renderer_name)
+                    raise RuntimeError(f"{renderer_name} 渲染输出提前结束。")
+                frame_arr = np.frombuffer(raw_frame, dtype=np.uint8).reshape(canvas_h, canvas_w, 4)
+                if not dll:
+                    frame_arr = _unpremultiply_rgba(frame_arr)
+                if fill_proc is not None:
+                    assert fill_proc.stdout is not None
+                    start = format_ass_timestamp((k + 1) * 1000 - 250)
+                    for corners in gradients.get(start, ()):
+                        raw_fill = _read_exact(fill_proc.stdout, mask_byte_len)
+                        if len(raw_fill) < mask_byte_len:
+                            _check_renderer(fill_proc, fill_log, "FFmpeg 渐变蒙版")
+                            raise RuntimeError("FFmpeg 渐变蒙版输出提前结束。")
+                        alpha = np.frombuffer(raw_fill, dtype=np.uint8).reshape(canvas_h, canvas_w)
+                        _composite_gradient_fill(frame_arr, alpha, corners)
+                regions = _extract_subtitle_regions(frame_arr)
+                if not regions:
+                    # Fully transparent interval (e.g. an alpha-hidden line):
+                    # clear whatever the previous display set left on screen,
+                    # otherwise the old subtitle would linger into this gap.
+                    if last_objects:
+                        clear_ticks = _ms_to_pts90k(iv["start_ms"])
+                        if clear_ticks <= last_pts_ticks:
+                            clear_ticks = last_pts_ticks + 900  # +10ms
+                        sup_file.write(
+                            _build_clear_display_set(
+                                pts_ticks=clear_ticks,
+                                comp_num=comp_num,
+                                canvas_w=canvas_w,
+                                canvas_h=canvas_h,
+                                fps_code=fps_code,
+                                prev_objects=last_objects,
                             )
                         )
-                        if fill_proc is not None:
-                            assert fill_proc.stdout is not None
-                            start = format_ass_timestamp((k + 1) * 1000 - 250)
-                            for corners in gradients.get(start, ()):
-                                raw_fill = _read_exact(fill_proc.stdout, mask_byte_len)
-                                if len(raw_fill) < mask_byte_len:
-                                    raise RuntimeError("FFmpeg 渐变蒙版输出提前结束，SUP 可能不完整。")
-                                alpha = np.frombuffer(raw_fill, dtype=np.uint8).reshape(canvas_h, canvas_w)
-                                _composite_gradient_fill(frame_arr, alpha, corners)
-                        regions = _extract_subtitle_regions(frame_arr)
-                        if not regions:
-                            # Fully transparent interval (e.g. an alpha-hidden line):
-                            # clear whatever the previous display set left on screen,
-                            # otherwise the old subtitle would linger into this gap.
-                            if last_objects:
-                                clear_ticks = _ms_to_pts90k(iv["start_ms"])
-                                if clear_ticks <= last_pts_ticks:
-                                    clear_ticks = last_pts_ticks + 900  # +10ms
-                                sup_file.write(
-                                    _build_clear_display_set(
-                                        pts_ticks=clear_ticks,
-                                        comp_num=comp_num,
-                                        canvas_w=canvas_w,
-                                        canvas_h=canvas_h,
-                                        fps_code=fps_code,
-                                        prev_objects=last_objects,
-                                    )
-                                )
-                                comp_num += 1
-                                last_pts_ticks = clear_ticks
-                                last_objects = []
-                            continue
+                        comp_num += 1
+                        last_pts_ticks = clear_ticks
+                        last_objects = []
+                    continue
 
-                        palette, objects = _quantize_regions_shared_palette(regions)
+                palette, objects = _quantize_regions_shared_palette(regions, preserve_fill=preserve_fill)
 
-                        # Enforce strictly monotonic PTS ticks
-                        start_ticks = _ms_to_pts90k(iv["start_ms"])
-                        if start_ticks <= last_pts_ticks:
-                            start_ticks = last_pts_ticks + int(round(frame_step_ms * 90.0))
+                # Enforce strictly monotonic PTS ticks
+                start_ticks = _ms_to_pts90k(iv["start_ms"])
+                if start_ticks <= last_pts_ticks:
+                    start_ticks = last_pts_ticks + int(round(frame_step_ms * 90.0))
 
-                        show_ds = _build_show_display_set(
-                            pts_ticks=start_ticks,
+                show_ds = _build_show_display_set(
+                    pts_ticks=start_ticks,
+                    comp_num=comp_num,
+                    canvas_w=canvas_w,
+                    canvas_h=canvas_h,
+                    fps_code=fps_code,
+                    palette=palette,
+                    objects=objects,
+                )
+                sup_file.write(show_ds)
+                comp_num += 1
+                last_pts_ticks = start_ticks
+                written_events += 1
+                last_objects = objects
+
+                # Determine whether to emit a Clear Display Set before the next subtitle
+                next_start_ms = intervals[k + 1]["start_ms"] if (k + 1 < total) else 1e12
+                if next_start_ms - iv["end_ms"] >= frame_step_ms * 0.85:
+                    clear_ticks = _ms_to_pts90k(iv["end_ms"])
+                    if clear_ticks <= last_pts_ticks:
+                        clear_ticks = last_pts_ticks + 900  # +10ms
+                    next_ticks = _ms_to_pts90k(next_start_ms)
+                    if clear_ticks < next_ticks:
+                        clear_ds = _build_clear_display_set(
+                            pts_ticks=clear_ticks,
                             comp_num=comp_num,
                             canvas_w=canvas_w,
                             canvas_h=canvas_h,
                             fps_code=fps_code,
-                            palette=palette,
-                            objects=objects,
+                            prev_objects=objects,
                         )
-                        sup_file.write(show_ds)
+                        sup_file.write(clear_ds)
                         comp_num += 1
-                        last_pts_ticks = start_ticks
-                        written_events += 1
-                        last_objects = objects
+                        last_pts_ticks = clear_ticks
+                        last_objects = []
 
-                        # Determine whether to emit a Clear Display Set before the next subtitle
-                        next_start_ms = intervals[k + 1]["start_ms"] if (k + 1 < total) else 1e12
-                        if next_start_ms - iv["end_ms"] >= frame_step_ms * 0.85:
-                            clear_ticks = _ms_to_pts90k(iv["end_ms"])
-                            if clear_ticks <= last_pts_ticks:
-                                clear_ticks = last_pts_ticks + 900  # +10ms
-                            next_ticks = _ms_to_pts90k(next_start_ms)
-                            if clear_ticks < next_ticks:
-                                clear_ds = _build_clear_display_set(
-                                    pts_ticks=clear_ticks,
-                                    comp_num=comp_num,
-                                    canvas_w=canvas_w,
-                                    canvas_h=canvas_h,
-                                    fps_code=fps_code,
-                                    prev_objects=objects,
-                                )
-                                sup_file.write(clear_ds)
-                                comp_num += 1
-                                last_pts_ticks = clear_ticks
-                                last_objects = []
+                if progress and (k % 5 == 0 or k == total - 1):
+                    pct = min(98, 10 + int(((k + 1) / total) * 88))
+                    progress(
+                        f"正在压制蓝光 PGS (.sup) 图形字幕：{k + 1} / {total} 幕 ({pct}%)…",
+                        pct,
+                    )
 
-                        if progress and (k % 5 == 0 or k == total - 1):
-                            pct = min(98, 10 + int(((k + 1) / total) * 88))
-                            progress(
-                                f"正在压制蓝光 PGS (.sup) 图形字幕：{k + 1} / {total} 幕 ({pct}%)…",
-                                pct,
-                            )
-            except Exception:
-                out_path.unlink(missing_ok=True)
-                raise
-        finally:
-            stderr_chunks: list[bytes] = []
-            for render_proc in procs:
-                if render_proc.stdout:
-                    render_proc.stdout.close()
-                stderr_chunks.append(render_proc.stderr.read() if render_proc.stderr else b"")
-                if render_proc.stderr:
-                    render_proc.stderr.close()
-                render_proc.wait(timeout=15)
-
-        for render_proc, stderr_bytes in zip(procs, stderr_chunks):
-            if render_proc.returncode != 0:
-                out_path.unlink(missing_ok=True)
-                err_msg = stderr_bytes.decode("utf-8", errors="ignore")
-                raise RuntimeError(
-                    f"FFmpeg libass 渲染失败（退出码 {render_proc.returncode}）: {err_msg[:300]}"
-                )
+        _check_renderer(base_proc, base_log, renderer_name)
+        if fill_proc is not None:
+            _check_renderer(fill_proc, fill_log, "FFmpeg 渐变蒙版")
         if written_events == 0:
-            out_path.unlink(missing_ok=True)
             raise RuntimeError("没有生成任何 PGS 字幕画面，请检查字幕事件是否可见。")
+        staged_sup.replace(out_path)
 
     if progress:
         progress(f"蓝光 SUP 转换完成！共写入 {written_events} 幕高清图形字幕", 100)
@@ -766,6 +864,7 @@ def convert_ass_content_to_sup(
         "saved_path": str(out_path),
         "events_written": written_events,
         "file_size_mb": round(out_path.stat().st_size / (1024 * 1024), 2),
+        "missing_fonts": missing_fonts,
     }
 
 
@@ -775,6 +874,9 @@ def convert_ass_file_to_sup(
     resolution: str = "1080p",
     fps: str = "23.976",
     progress: ProgressCallback | None = None,
+    *,
+    renderer: str = "libass",
+    vsfiltermod_dll: str | Path | None = None,
 ) -> dict[str, Any]:
     src = Path(ass_path)
     if not src.exists():
@@ -787,6 +889,8 @@ def convert_ass_file_to_sup(
         resolution=resolution,
         fps=fps,
         progress=progress,
+        renderer=renderer,
+        vsfiltermod_dll=vsfiltermod_dll,
     )
 
 
@@ -800,6 +904,9 @@ def export_editor_subtitles_to_sup(
     title: str = "EasySub Blu-ray PGS",
     progress: ProgressCallback | None = None,
     ink: list[Any] | None = None,
+    *,
+    renderer: str = "libass",
+    vsfiltermod_dll: str | Path | None = None,
 ) -> dict[str, Any]:
     # The PGS converter renders one static picture per active interval.
     ass_content = export_ass(
@@ -816,4 +923,6 @@ def export_editor_subtitles_to_sup(
         resolution=resolution,
         fps=fps,
         progress=progress,
+        renderer=renderer,
+        vsfiltermod_dll=vsfiltermod_dll,
     )

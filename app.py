@@ -210,6 +210,14 @@ def save_settings(new_settings: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _sup_font_warning(missing: set[str]) -> str:
+    if not missing:
+        return ""
+    names = "、".join(f"「{name}」" for name in sorted(missing)[:5])
+    suffix = f"等 {len(missing)} 个字体" if len(missing) > 5 else ""
+    return f"。本机缺少 {names}{suffix}，已使用系统替代字体。"
+
+
 _MEDIA_MIME_MAP: dict[str, str] = {
     ".mp4": "video/mp4",
     ".m4v": "video/mp4",
@@ -1116,6 +1124,25 @@ class DesktopBridgeApi:
         except Exception as exc:
             return {"ok": False, "error": f"导出保存失败: {exc}"}
 
+    def pick_vsfiltermod_dll(self) -> dict[str, Any]:
+        if not STATE.window:
+            return {"ok": False}
+        selected = STATE.window.create_file_dialog(
+            DIALOG_OPEN,
+            allow_multiple=False,
+            file_types=("VSFilterMod 插件 (*.dll)",),
+        )
+        if not selected:
+            return {"ok": False, "cancelled": True}
+        try:
+            from core.sup_export import validate_vsfiltermod_dll
+
+            path = str(validate_vsfiltermod_dll(selected if isinstance(selected, str) else selected[0]))
+            save_settings({"sup_vsfiltermod_dll": path})
+            return {"ok": True, "path": path}
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
     def export_current_to_sup_dialog(
         self,
         lang_mode: str,
@@ -1125,6 +1152,7 @@ class DesktopBridgeApi:
         fps: str = "23.976",
         default_stem: str = "双语字幕",
         ink: list[Any] | None = None,
+        renderer: str = "libass",
     ) -> dict[str, Any]:
         """Export current editor subtitles + style directly into a Blu-ray PGS .sup file."""
         if not STATE.window:
@@ -1135,6 +1163,7 @@ class DesktopBridgeApi:
             return {"ok": False, "error": "当前字幕列表为空，请先输入或导入字幕！"}
         if lang_mode != "en_only" and any(row.get("motion") for row in subtitles):
             return {"ok": False, "error": "跟随标注的动态位置请使用 ASS 导出"}
+        dll = load_settings().get("sup_vsfiltermod_dll") if renderer == "vsfiltermod" else None
 
         suffix_label = {
             "bilingual": "中英双语",
@@ -1174,10 +1203,13 @@ class DesktopBridgeApi:
                     title=stem,
                     progress=lambda msg, pct: STATE.set_task(True, msg, pct),
                     ink=ink,
+                    renderer=renderer,
+                    vsfiltermod_dll=dll,
                 )
+                message = f"SUP 导出完成！({res['events_written']} 幕, {res['file_size_mb']} MB) ➔ {out_path.name}"
                 STATE.set_task(
                     False,
-                    f"SUP 导出完成！({res['events_written']} 幕, {res['file_size_mb']} MB) ➔ {out_path.name}",
+                    message + _sup_font_warning(set(res["missing_fonts"])),
                     100,
                     result={"sup_done": True, "saved_path": str(out_path), "details": res},
                 )
@@ -1192,12 +1224,14 @@ class DesktopBridgeApi:
         self,
         resolution: str = "1080p",
         fps: str = "23.976",
+        renderer: str = "libass",
     ) -> dict[str, Any]:
         """Pick 1 or multiple local .ass/.ssa files and convert them directly into .sup files!"""
         if not STATE.window:
             return {"ok": False}
         if STATE.get_task()["running"]:
             return {"ok": False, "error": "后台已有任务正在运行中，请稍候…"}
+        dll = load_settings().get("sup_vsfiltermod_dll") if renderer == "vsfiltermod" else None
 
         selected = STATE.window.create_file_dialog(
             DIALOG_OPEN,
@@ -1234,6 +1268,7 @@ class DesktopBridgeApi:
 
                 total_files = len(ass_files)
                 converted_paths: list[str] = []
+                missing_fonts: set[str] = set()
                 for idx, src_ass in enumerate(ass_files):
                     target_sup = (
                         single_out_path
@@ -1252,8 +1287,11 @@ class DesktopBridgeApi:
                         resolution=resolution,
                         fps=fps,
                         progress=sub_prog,
+                        renderer=renderer,
+                        vsfiltermod_dll=dll,
                     )
                     converted_paths.append(res["saved_path"])
+                    missing_fonts.update(res["missing_fonts"])
 
                 summary = (
                     f"已成功转换生成：{Path(converted_paths[0]).name}"
@@ -1262,9 +1300,12 @@ class DesktopBridgeApi:
                 )
                 STATE.set_task(
                     False,
-                    summary,
+                    summary + _sup_font_warning(missing_fonts),
                     100,
-                    result={"sup_done": True, "converted_paths": converted_paths},
+                    result={
+                        "sup_done": True, "converted_paths": converted_paths,
+                        "missing_fonts": sorted(missing_fonts),
+                    },
                 )
             except Exception as exc:
                 traceback.print_exc()

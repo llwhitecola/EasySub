@@ -28,6 +28,7 @@
 - **💿 专业级 `.ASS` / `.SRT` 导出与蓝光原盘 `.SUP` (PGS) 压制**
   - 导出 `1920x1080` 标准 `.ass`（采用主副样式 `{\r}` 内联重置，长句多行绝不发生中英文重叠）。
   - 内置 **ASS 转蓝光 PGS (`.sup`) 图形字幕引擎**（支持 `1080p` / `4K UHD` / `720p` 与 `23.976`–`59.94 fps`、支持同屏顶部注释+底部双语双窗口 PGS 编码、支持本地 `.ass` 多选整季批量直转 `.sup`），让芝杜、Infuse、Plex、Jellyfin 与蓝光碟机无需安装字体也能 100% 还原字幕特效。
+  - 「蓝光 SUP 压制」默认使用 libass。歌词等带 `\1vc` 的 ASS 可改选 **VSFilterMod · AviSynth+**，并在同一窗口选择 `VSFilterMod.dll`。当前字幕与批量 ASS 转换都支持切换。Windows 需安装 [AviSynth+](https://github.com/AviSynth/AviSynthPlus/releases)，并准备支持 AviSynth 输入的 FFmpeg 和 [VSFilterMod 插件](https://github.com/Selur/VSFilterMod/releases/tag/v5.4.0)（可从 Windows x64 wheel 中解压 DLL）。三者须使用相同位数。SUP 每个字幕区间输出一张静态图，保留逐帧位移、淡入淡出等动效时请使用 ASS。
 
 ---
 

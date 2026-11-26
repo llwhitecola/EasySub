@@ -545,6 +545,15 @@
             <label class="lbl"><span>帧率</span><select class="field" id="supFps"><option value="23.976" selected>23.976（电影、美剧）</option><option value="24">24.000（数字母版）</option><option value="25">25.000（PAL、英剧）</option><option value="29.97">29.97（NTSC）</option><option value="50">50.000</option><option value="59.94">59.94（高帧率）</option></select></label>
             <label class="lbl"><span>当前字幕的语种</span><select class="field" id="supLang"><option value="bilingual" selected>中英双语</option><option value="zh_only">仅中文</option><option value="en_only">仅英文</option></select></label>
           </div>
+          <label class="lbl"><span>渲染引擎</span><select class="field" id="supRenderer">
+            <option value="libass" selected>FFmpeg · libass</option>
+            <option value="vsfiltermod">VSFilterMod · AviSynth+</option>
+          </select></label>
+          <div class="stack" id="supVsFilterOptions" hidden>
+            <button class="btn" type="button" id="btnSupPlugin">选择 VSFilterMod.dll</button>
+            <p class="hint" id="supPluginPath" style="overflow-wrap:anywhere" aria-live="polite"></p>
+            <p class="hint">请使用支持 AviSynth 输入的 FFmpeg。FFmpeg、AviSynth+ 与插件须使用相同位数，建议使用 64 位。</p>
+          </div>
           <div class="duo">
             <button class="duo-card" type="button" id="btnSupCurrent" data-autofocus><svg class="i"><use href="#i-film"/></svg><b>压制当前字幕</b><small>用样式面板里的设置渲染 <em class="num" id="supCurrentCount"></em></small></button>
             <button class="duo-card" type="button" id="btnSupFiles"><svg class="i"><use href="#i-layers"/></svg><b>批量转换 ASS 文件</b><small>可多选整季，按文件自带样式生成同名 SUP</small></button>

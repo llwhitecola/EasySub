@@ -63,16 +63,26 @@ async function doExport(fmt, btn) {
 }
 
 /* ---------- SUP ---------- */
+function paintSupRenderer() {
+  byId("supVsFilterOptions").hidden = byId("supRenderer").value !== "vsfiltermod";
+  byId("supPluginPath").textContent = state.settings.sup_vsfiltermod_dll || "尚未选择插件";
+}
+
 export function openSup() {
   byId("supLang").value = state.langMode;
   byId("supCurrentCount").textContent = state.subtitles.length ? `${state.subtitles.length} 句` : "没有字幕";
+  paintSupRenderer();
   openModal("modalSup");
 }
 
 async function runSup(btn, start) {
   if (taskRunning()) return toast("已有任务在运行，请等它完成");
+  const renderer = byId("supRenderer").value;
+  if (renderer === "vsfiltermod" && !state.settings.sup_vsfiltermod_dll) {
+    return toast("请先选择 VSFilterMod.dll", { type: "error" });
+  }
   return withBusy(btn, async () => {
-    const res = await start(byId("supRes").value, byId("supFps").value);
+    const res = await start(byId("supRes").value, byId("supFps").value, renderer);
     if (res.cancelled) return;
     if (!res.ok || !res.started) return res.error && toast(res.error, { type: "error" });
     followTask({
@@ -110,13 +120,21 @@ export function initExporter() {
   });
 
   byId("btnOpenSup").addEventListener("click", openSup);
+  byId("supRenderer").addEventListener("change", paintSupRenderer);
+  byId("btnSupPlugin").addEventListener("click", (e) => withBusy(e.currentTarget, async () => {
+    const res = await call("pick_vsfiltermod_dll");
+    if (res.ok) {
+      state.settings.sup_vsfiltermod_dll = res.path;
+      paintSupRenderer();
+    } else if (res.error) toast(res.error, { type: "error" });
+  }));
   byId("btnSupFiles").addEventListener("click", (e) =>
-    runSup(e.currentTarget, (res, fps) => call("pick_and_convert_ass_to_sup", res, fps)),
+    runSup(e.currentTarget, (res, fps, renderer) => call("pick_and_convert_ass_to_sup", res, fps, renderer)),
   );
   byId("btnSupCurrent").addEventListener("click", (e) => {
     if (!state.subtitles.length) return toast("还没有字幕可以压制");
-    return runSup(e.currentTarget, (res, fps) =>
-      call("export_current_to_sup_dialog", byId("supLang").value, state.subtitles, state.style, res, fps, state.videoStem, collectInk()),
+    return runSup(e.currentTarget, (res, fps, renderer) =>
+      call("export_current_to_sup_dialog", byId("supLang").value, state.subtitles, state.style, res, fps, state.videoStem, collectInk(), renderer),
     );
   });
 }
