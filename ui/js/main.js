@@ -29,8 +29,8 @@ const AUTOSAVE_MS = 25000;
 const OFFLINE_PRESETS = [
   { id: "us_drama_default", name: "美剧双语经典", desc: "银灰白中文 + 暖沙金英文", ...structuredClone(DEFAULT_STYLE) },
   {
-    id: "cinema_classic", name: "经典蓝光", desc: "方正黑体浅灰中文与 Tahoma 粗体亮白英文，保留原样式的双语位置",
-    order: "zh_top", margin_v: 20, line_gap: 125, line_gap_mode: "ass_margin", blur: 0, ycbcr_matrix: "None",
+    id: "cinema_classic", name: "经典蓝光", desc: "方正黑体浅灰中文与 Tahoma 粗体亮白英文，沿用默认模板的中英间距",
+    order: "zh_top", margin_v: 20, line_gap: DEFAULT_STYLE.line_gap, blur: 0, ycbcr_matrix: "None",
     box_mode: false, box_color: "#000000", box_opacity: 0.55,
     zh: { style_name: "chs", font: "方正黑体_GBK", size: 66, color: "#DBDBDB", secondary_color: "#FF0000", outline_color: "#000000", outline: 1, shadow: 1, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
     en: { style_name: "eng", font: "Tahoma", size: 45, color: "#FFFFFF", secondary_color: "#FF0000", outline_color: "#000000", outline: 1, shadow: 1, scale_x: 100, margin_l: 10, margin_r: 10, bold: true, italic: false },

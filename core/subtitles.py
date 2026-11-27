@@ -22,6 +22,7 @@ CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]")
 LATIN_RE = re.compile(r"[A-Za-z]")
 ASS_TAG_RE = re.compile(r"\{[^}]*\}")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
+DEFAULT_LINE_GAP = 13
 
 
 DEFAULT_PRESETS: list[dict[str, Any]] = [
@@ -31,7 +32,7 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
         "desc": "文泉驿微米黑银灰白 + ITC 暖沙金英文，可见像素行距、93%窄字宽与柔边羽化(\\blur2)",
         "order": "zh_top",
         "margin_v": 15,
-        "line_gap": 13,
+        "line_gap": DEFAULT_LINE_GAP,
         "blur": 2.0,
         "ycbcr_matrix": "None",
         "box_mode": False,
@@ -75,11 +76,10 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "cinema_classic",
         "name": "经典蓝光",
-        "desc": "方正黑体浅灰中文与 Tahoma 粗体亮白英文，保留原样式的双语位置",
+        "desc": "方正黑体浅灰中文与 Tahoma 粗体亮白英文，沿用默认模板的中英间距",
         "order": "zh_top",
         "margin_v": 20,
-        "line_gap": 125,
-        "line_gap_mode": "ass_margin",
+        "line_gap": DEFAULT_LINE_GAP,
         "blur": 0,
         "ycbcr_matrix": "None",
         "box_mode": False,

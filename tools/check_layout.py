@@ -123,20 +123,21 @@ def check_fallback(name: str, style: dict, item: dict, order: str) -> bool:
 def check_classic_bluray(style: dict) -> bool:
     ass = export_ass([cue()], style, ink=[HINT])
     expected_styles = (
-        "Style: chs,方正黑体_GBK,66,&H00DBDBDB,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,1,2,10,10,145,1",
+        "Style: chs,方正黑体_GBK,66,&H00DBDBDB,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,1,2,10,10,20,1",
         "Style: eng,Tahoma,45,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,2,10,10,20,1",
     )
     ok = all(line in ass.splitlines() for line in expected_styles)
     ok &= "YCbCr Matrix: None" in ass and r"\blur" not in ass
-    ok &= {event["style"]: event["margin_v"] for event in events(ass)} == {"chs": 145, "eng": 20}
-    for mode, margin in (("zh_only", 145), ("en_only", 20)):
-        single = events(export_ass([cue()], style, lang_mode=mode))
-        ok &= len(single) == 1 and single[0]["margin_v"] == margin
-    # Applying this preset to one cue must keep its independent margins.
-    override = cue(style_override=style)
-    rows = events(export_ass([override], DEFAULT_PRESETS[0], ink=[HINT]))
-    ok &= {event["layer"]: event["margin_v"] for event in rows} == {0: 20, 1: 145}
-    print(("通过  " if ok else "失败  ") + "经典蓝光保留原 ASS 样式与距底位置")
+    expected_gap = DEFAULT_PRESETS[0]["line_gap"]
+    ok &= style["line_gap"] == expected_gap
+    ok &= check_hint("经典蓝光与默认模板使用相同行距", style, cue(), HINT, expected_gap)
+    legacy = {**style, "line_gap_mode": "ass_margin", "line_gap": 125}
+    old_rows = events(export_ass([cue()], legacy, ink=[HINT]))
+    ok &= {event["style"]: event["margin_v"] for event in old_rows} == {"chs": 145, "eng": 20}
+    # A per-cue preset must switch away from the old project's fixed-margin mode.
+    override = cue(style_override={**style, "line_gap_mode": "ink"})
+    ok &= check_hint("旧工程中的经典蓝光本句样式", legacy, override, HINT, expected_gap)
+    print(("通过  " if ok else "失败  ") + "经典蓝光保留原字体颜色，兼容旧工程距底位置")
     return ok
 
 
@@ -145,7 +146,7 @@ def main() -> int:
 
     for preset in DEFAULT_PRESETS:
         style = copy.deepcopy(preset)
-        if style.get("line_gap_mode") == "ass_margin":
+        if style["id"] == "cinema_classic":
             results.append(check_classic_bluray(style))
         elif style.get("box_mode"):
             results.append(check_box(preset["name"] + " · 黑底盒", style, cue()))
