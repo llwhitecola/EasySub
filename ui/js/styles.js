@@ -35,6 +35,7 @@ const EN_FONTS = [
 ];
 
 const THUMB_CUE = { zh: "双语字幕", en: "Bilingual" };
+const INK_GAP_TIP = "上行文字底部到下文字顶部的可见像素距离。0 表示刚好相接，负数表示重叠。";
 const ui = { zh: {}, en: {} };
 let orderSeg;
 let langSeg;
@@ -49,6 +50,7 @@ export function styleFromPreset(p) {
   const s = structuredClone(p);
   for (const k of ["id", "name", "desc", "is_custom"]) delete s[k];
   s.line_gap ??= 4;
+  s.line_gap_mode ??= "ink";
   s.blur ??= 0.8;
   s.fade_in_ms ??= 0;
   s.fade_out_ms ??= 0;
@@ -131,8 +133,11 @@ function setStyleField(key, value, lang, from) {
   const override = { ...cue.style_override };
   if (lang) override[lang] = { ...override[lang] };
   const patch = lang ? override[lang] : override;
-  if (value === (lang ? inherited[lang] : inherited)[key]) delete patch[key];
+  const gapModeDiffers = key === "line_gap" &&
+    (effective.line_gap_mode ?? "ink") !== (inherited.line_gap_mode ?? "ink");
+  if (!gapModeDiffers && value === (lang ? inherited[lang] : inherited)[key]) delete patch[key];
   else patch[key] = value;
+  if (key === "line_gap" && "line_gap" in patch) patch.line_gap_mode = effective.line_gap_mode ?? "ink";
   if (key === "color" && lang) {
     if (inherited[lang]?.gradient) patch.gradient = null;
     else delete patch.gradient;
@@ -164,6 +169,7 @@ export function presetForCue(preset, cue) {
   if (motion || isStaticNote(cue)) {
     delete style.en;
     delete style.line_gap;
+    delete style.line_gap_mode;
   }
   if (motion) {
     delete style.order;
@@ -350,13 +356,21 @@ function syncControls() {
   langSeg.set(state.langMode);
   byId("chkBox").checked = Boolean(s.box_mode);
   ui.margin.set(s.margin_v);
+  const assSpacing = s.line_gap_mode === "ass_margin";
+  const gapLabel = assSpacing ? "上下行高度差" : "中英间距";
+  const gapName = $(".fader-head span", ui.gap.root);
+  gapName.textContent = gapLabel;
+  gapName.dataset.tip = assSpacing ? "原 ASS 的上下行距底高度之差，以 1920×1080 脚本像素计。" : INK_GAP_TIP;
+  $('input[type="range"]', ui.gap.root).setAttribute("aria-label", gapLabel);
+  $('input[type="number"]', ui.gap.root).setAttribute("aria-label", `${gapLabel}数值`);
+  ui.gap.setLimits(assSpacing ? 0 : -30, assSpacing ? 400 : 28);
   ui.gap.set(s.line_gap);
   ui.blur.set(s.blur);
   byId("faderBlur").classList.toggle("muted", Boolean(s.box_mode));
   const preset = activePreset();
   const base = cue ? inheritedCueStyle(state.style, cue) : preset ? styleFromPreset(preset) : null;
   ui.margin.setReset(base?.margin_v ?? null);
-  ui.gap.setReset(base?.line_gap ?? null);
+  ui.gap.setReset(base && (base.line_gap_mode === "ass_margin") === assSpacing ? base.line_gap : null);
   ui.blur.setReset(base?.blur ?? null);
   for (const lang of ["zh", "en"]) {
     const cfg = s[lang];
@@ -457,7 +471,7 @@ export function initStyles() {
     label: "中英间距",
     min: -30,
     max: 28,
-    tip: "按可见空隙计：数字是上行文字底部到下文字顶部的像素（1920×1080 脚本分辨率），按实际字体的墨迹计算。0 = 两行刚好相接，正数更松、负数重叠。Aegisub 的样式里没有行间距参数，它的「间距」字段是横向字距。",
+    tip: INK_GAP_TIP,
   }, "line_gap");
   ui.blur = fader("faderBlur", { label: "柔边羽化", min: 0, max: 5, step: 0.5 }, "blur");
   buildLangCard("zh");

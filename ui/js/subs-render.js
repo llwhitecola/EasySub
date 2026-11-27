@@ -253,8 +253,14 @@ export function gapHint(style, zhText, enText) {
  * so the number stays a real pixel distance instead of adding the font's built-in air.
  * BorderStyle 3 measures between the drawn boxes instead.
  */
-function upperMargin(style, zhText, enText, lowerIsEn) {
+function lineMargin(style, upper = false) {
   const mv = Math.max(0, Math.trunc(num(style.margin_v, 15)));
+  return upper && style.line_gap_mode === "ass_margin" ? Math.max(0, mv + Math.round(num(style.line_gap, 4))) : mv;
+}
+
+function upperMargin(style, zhText, enText, lowerIsEn) {
+  if (style.line_gap_mode === "ass_margin") return lineMargin(style, true);
+  const mv = lineMargin(style);
   const gap = Math.round(num(style.line_gap, 4));
   const lowerCfg = (lowerIsEn ? style.en : style.zh) ?? {};
   const upperCfg = (lowerIsEn ? style.zh : style.en) ?? {};
@@ -460,7 +466,7 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
     );
   }
 
-  const mv = Math.max(0, Math.trunc(num(style.margin_v, 15)));
+  const mv = lineMargin(style);
   const opt = (marginV, kin) => ({ W, H, k, ...kin, box, marginV, top: false });
 
   if (zh && en) {
@@ -471,8 +477,8 @@ export function drawCue(ctx, { W, H, cue, style, langMode = "bilingual", zoom = 
     const upper = drawEvent(ctx, lowerIsEn ? zh : en, lowerIsEn ? style.zh : style.en, opt(upperMv, mainKin));
     return union(lower, upper);
   }
-  if (zh) return drawEvent(ctx, zh, style.zh, opt(mv, mainKin));
-  if (en) return drawEvent(ctx, en, style.en, opt(mv, mainKin));
+  if (zh) return drawEvent(ctx, zh, style.zh, opt(lineMargin(style, zhTop), mainKin));
+  if (en) return drawEvent(ctx, en, style.en, opt(lineMargin(style, !zhTop), mainKin));
   return null;
 }
 

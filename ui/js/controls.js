@@ -95,7 +95,15 @@ export function makeFader({ label, min, max, step = 1, unit = "", onInput, tip =
     }
   });
   num.addEventListener("focus", () => num.select());
-  return { root, set, setReset: (v) => { reset = v; } };
+  const setLimits = (lower, upper) => {
+    if (min === lower && max === upper) return;
+    min = lower;
+    max = upper;
+    range.min = num.min = String(min);
+    range.max = num.max = String(max);
+    fill();
+  };
+  return { root, set, setLimits, setReset: (v) => { reset = v; } };
 }
 
 /* ---------- colour well ---------- */

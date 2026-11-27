@@ -29,10 +29,11 @@ const AUTOSAVE_MS = 25000;
 const OFFLINE_PRESETS = [
   { id: "us_drama_default", name: "美剧双语经典", desc: "银灰白中文 + 暖沙金英文", ...structuredClone(DEFAULT_STYLE) },
   {
-    id: "cinema_classic", name: "影院经典黄白", desc: "暖鹅黄中文 + 纯白英文，醒目高对比",
-    order: "zh_top", margin_v: 46, line_gap: 4, blur: 0.8, box_mode: false, box_color: "#000000", box_opacity: 0.55,
-    zh: { font: "Microsoft YaHei", size: 58, color: "#FACC15", outline_color: "#090D16", outline: 2.8, shadow: 1.8, scale_x: 100, bold: true, italic: false },
-    en: { font: "Segoe UI", size: 35, color: "#F8FAFC", outline_color: "#090D16", outline: 2.2, shadow: 1.5, scale_x: 100, bold: true, italic: false },
+    id: "cinema_classic", name: "经典蓝光", desc: "方正黑体浅灰中文与 Tahoma 粗体亮白英文，保留原样式的双语位置",
+    order: "zh_top", margin_v: 20, line_gap: 125, line_gap_mode: "ass_margin", blur: 0, ycbcr_matrix: "None",
+    box_mode: false, box_color: "#000000", box_opacity: 0.55,
+    zh: { style_name: "chs", font: "方正黑体_GBK", size: 66, color: "#DBDBDB", secondary_color: "#FF0000", outline_color: "#000000", outline: 1, shadow: 1, scale_x: 100, margin_l: 10, margin_r: 10, bold: false, italic: false },
+    en: { style_name: "eng", font: "Tahoma", size: 45, color: "#FFFFFF", secondary_color: "#FF0000", outline_color: "#000000", outline: 1, shadow: 1, scale_x: 100, margin_l: 10, margin_r: 10, bold: true, italic: false },
   },
   {
     id: "doc_immersive_box", name: "纪录片黑底沉浸盒", desc: "半透明圆润黑底条，白底亮画面也清晰可读",

@@ -7,6 +7,7 @@ const RULES = {
   order: (v) => v === "zh_top" || v === "en_top",
   margin_v: Number.isFinite,
   line_gap: Number.isFinite,
+  line_gap_mode: (v) => v === "ink" || v === "ass_margin",
   blur: Number.isFinite,
   box_mode: (v) => typeof v === "boolean",
   box_color: color,
@@ -42,6 +43,7 @@ function validFields(value, rules) {
 
 export function normalizeCueStyle(value) {
   const result = validFields(value, RULES);
+  if ("line_gap" in result) result.line_gap_mode ??= "ink";
   for (const lang of ["zh", "en"]) {
     const fields = validFields(value?.[lang], TEXT_RULES);
     if (Object.keys(fields).length) result[lang] = fields;

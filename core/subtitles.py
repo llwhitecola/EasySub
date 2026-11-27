@@ -74,36 +74,45 @@ DEFAULT_PRESETS: list[dict[str, Any]] = [
     },
     {
         "id": "cinema_classic",
-        "name": "经典蓝光亮白",
-        "desc": "纯白中文 + 柔和浅灰英文，清晰描边阴影，百搭各类普通 SDR 电影剧集",
+        "name": "经典蓝光",
+        "desc": "方正黑体浅灰中文与 Tahoma 粗体亮白英文，保留原样式的双语位置",
         "order": "zh_top",
-        "margin_v": 42,
-        "line_gap": 4,
-        "blur": 0.8,
-        "ycbcr_matrix": "TV.709",
+        "margin_v": 20,
+        "line_gap": 125,
+        "line_gap_mode": "ass_margin",
+        "blur": 0,
+        "ycbcr_matrix": "None",
         "box_mode": False,
         "box_color": "#000000",
         "box_opacity": 0.55,
         "zh": {
-            "font": "Microsoft YaHei",
-            "size": 58,
-            "color": "#FFFFFF",
-            "outline_color": "#111827",
-            "outline": 2.4,
-            "shadow": 1.6,
+            "style_name": "chs",
+            "font": "方正黑体_GBK",
+            "size": 66,
+            "color": "#DBDBDB",
+            "secondary_color": "#FF0000",
+            "outline_color": "#000000",
+            "outline": 1,
+            "shadow": 1,
             "scale_x": 100,
-            "bold": True,
+            "margin_l": 10,
+            "margin_r": 10,
+            "bold": False,
             "italic": False,
         },
         "en": {
-            "font": "Segoe UI",
-            "size": 36,
-            "color": "#E2E8F0",
-            "outline_color": "#111827",
-            "outline": 1.8,
-            "shadow": 1.4,
+            "style_name": "eng",
+            "font": "Tahoma",
+            "size": 45,
+            "color": "#FFFFFF",
+            "secondary_color": "#FF0000",
+            "outline_color": "#000000",
+            "outline": 1,
+            "shadow": 1,
             "scale_x": 100,
-            "bold": False,
+            "margin_l": 10,
+            "margin_r": 10,
+            "bold": True,
             "italic": False,
         },
     },
@@ -1577,6 +1586,10 @@ def _cue_style_override(item: dict[str, Any]) -> dict[str, Any]:
         value = source.get(key)
         if type(value) in (int, float) and math.isfinite(value):
             patch[key] = value
+    if source.get("line_gap_mode") in ("ink", "ass_margin"):
+        patch["line_gap_mode"] = source["line_gap_mode"]
+    elif "line_gap" in patch:
+        patch["line_gap_mode"] = "ink"
     for lang in ("zh", "en"):
         cfg = source.get(lang)
         if not isinstance(cfg, dict):
@@ -1761,7 +1774,16 @@ def export_ass(
         """BorderStyle 3 draws the box padding-sized border around each text line."""
         return max(6.0, float(cfg.get("outline", 2.0)) * 3.0)
 
-    def style_fields(cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2) -> str:
+    def text_margin_v(layout: dict[str, Any], lang: str | None = None) -> int:
+        lower_margin = max(0, int(layout.get("margin_v", 15)))
+        upper_lang = "en" if layout.get("order") == "en_top" else "zh"
+        if layout.get("line_gap_mode") == "ass_margin" and lang == upper_lang:
+            return max(0, lower_margin + round(float(layout.get("line_gap", 4))))
+        return lower_margin
+
+    def style_fields(
+        cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2, *, lang: str | None = None
+    ) -> str:
         font = str(cfg.get("font", "WenQuanYi Micro Hei")).replace(",", " ")
         size = int(round(float(cfg.get("size", 70))))
         pri_color = hex_to_ass_color(cfg.get("color", "#B7B7B7"), 1.0)
@@ -1787,7 +1809,7 @@ def export_ass(
         scale_x = int(round(float(cfg.get("scale_x", 100))))
         margin_l = int(cfg.get("margin_l", 10))
         margin_r = int(cfg.get("margin_r", 11))
-        mv = max(0, int(layout.get("margin_v", 15)))
+        mv = text_margin_v(layout, lang)
         return (
             f"{font},{size},{pri_color},{sec_color},{out_color},{back_color},"
             f"{bold},{italic},0,0,{scale_x},100,0,0,{3 if box_mode else 1},{fmt_num(outline)},{fmt_num(shadow)},"
@@ -1795,8 +1817,8 @@ def export_ass(
         )
 
     defaults = [
-        (base_zh_name, style_fields(base_zh, style)),
-        (base_en_name, style_fields(base_en, style)),
+        (base_zh_name, style_fields(base_zh, style, lang="zh")),
+        (base_en_name, style_fields(base_en, style, lang="en")),
         (base_note_name, style_fields(base_note, note_layout, alignment=8)),
     ]
     style_lines = [f"Style: {name},{fields}" for name, fields in defaults]
@@ -1804,9 +1826,11 @@ def export_ass(
     used_names = {name.casefold() for name, _ in defaults}
     next_style_id = 1
 
-    def style_name(cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2) -> str:
+    def style_name(
+        cfg: dict[str, Any], layout: dict[str, Any], alignment: int = 2, *, lang: str | None = None
+    ) -> str:
         nonlocal next_style_id
-        fields = style_fields(cfg, layout, alignment)
+        fields = style_fields(cfg, layout, alignment, lang=lang)
         if fields in names_by_fields:
             return names_by_fields[fields]
         while True:
@@ -1884,8 +1908,9 @@ def export_ass(
 
         zh_cfg = {**base_zh, **override.get("zh", {})} if override else base_zh
         en_cfg = {**base_en, **override.get("en", {})} if override else base_en
-        zh_style_name = style_name(zh_cfg, layout) if override else base_zh_name
-        en_style_name = style_name(en_cfg, layout) if override else base_en_name
+        zh_style_name = style_name(zh_cfg, layout, lang="zh") if override else base_zh_name
+        en_style_name = style_name(en_cfg, layout, lang="en") if override else base_en_name
+        zh_mv, en_mv = text_margin_v(layout, "zh"), text_margin_v(layout, "en")
         zh_grad_tag = "" if box_mode else build_ass_gradient_tag(zh_cfg.get("gradient"))
         en_grad_tag = "" if box_mode else build_ass_gradient_tag(en_cfg.get("gradient"))
 
@@ -1893,12 +1918,12 @@ def export_ass(
             if not zh:
                 continue
             zh_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
-            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{zh_prefix}{zh}")
+            events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{zh_mv},,{zh_prefix}{zh}")
         elif lang_mode == "en_only":
             if not en:
                 continue
             en_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
-            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{en_prefix}{en}")
+            events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{en_mv},,{en_prefix}{en}")
         else:
             if zh and en:
                 zh_size_val = float(zh_cfg.get("size", 70))
@@ -1925,7 +1950,9 @@ def export_ass(
                     upper_name, lower_name = en_style_name, zh_style_name
                     lower_size, lower_scale_x, lower_margin_lr = zh_size_val, zh_scale_x, zh_margin_lr
                 lower_lines = estimate_wrapped_lines(lower_body, lower_size, lower_scale_x, lower_margin_lr)
-                if box_mode:
+                if layout.get("line_gap_mode") == "ass_margin":
+                    top_mv = zh_mv if order == "zh_top" else en_mv
+                elif box_mode:
                     # Measure between the drawn boxes, whose borders add to the padding.
                     top_mv = (
                         bot_mv
@@ -1955,10 +1982,10 @@ def export_ass(
                 )
             elif zh:
                 zh_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, zh_grad_tag)
-                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{bot_mv},,{zh_prefix}{zh}")
+                events.append(f"Dialogue: 0,{start_str},{end_str},{zh_style_name},,0,0,{zh_mv},,{zh_prefix}{zh}")
             elif en:
                 en_prefix = wrap_tags(fade_tag, blur_tag, main_anim_tag, en_grad_tag)
-                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{bot_mv},,{en_prefix}{en}")
+                events.append(f"Dialogue: 0,{start_str},{end_str},{en_style_name},,0,0,{en_mv},,{en_prefix}{en}")
 
     styles_text = "\n".join(style_lines)
     header = f"""[Script Info]
