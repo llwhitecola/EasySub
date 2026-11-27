@@ -6,6 +6,7 @@ import { closeModal, onModalClose, openModal, toast, withBusy } from "./feedback
 import { call, callQuiet } from "./bridge.js";
 import { bindSeg } from "./controls.js";
 import { applyTaskResult, followTask, jobMark, taskRunning } from "./tasks.js";
+import { filmMetadataForTranslation, initTmdb } from "./tmdb.js";
 
 let workflow = "asr_and_translate";
 let presetPrompts = null;
@@ -24,6 +25,8 @@ const FIELDS = {
   trans_custom_prompt: ["aiCustomPrompt", ""],
   trans_context: ["aiContext", ""],
   trans_glossary: ["aiGlossary", ""],
+  tmdb_auto_match: ["aiTmdbAutoMatch", true],
+  tmdb_credential: ["aiTmdbCredential", ""],
   llm_base: ["aiLlmBase", "https://api.deepseek.com/v1"],
   llm_key: ["aiLlmKey", ""],
   llm_model: ["aiLlmModel", "deepseek-chat"],
@@ -165,13 +168,21 @@ async function run(btn) {
   if (taskRunning()) return toast("已有任务在运行，请等它完成");
   return withBusy(btn, async () => {
     const mark = jobMark();
-    const res = await call("start_ai_workflow", workflow, state.subtitles, {
-      settings: collectSettings(),
+    const settings = collectSettings();
+    const activeWorkflow = workflow;
+    const filmMetadata = activeWorkflow !== "asr_only" && settings.trans_provider === "llm"
+      ? await filmMetadataForTranslation() : null;
+    if (state.mediaId !== mark.media || state.subtitles !== mark.cues) {
+      return toast("当前影片或字幕已切换，请重新开始翻译");
+    }
+    const res = await call("start_ai_workflow", activeWorkflow, mark.cues, {
+      settings,
       direction: byId("aiTransDir").dataset.value || "en_to_zh",
       overwrite: byId("aiOverwrite").checked,
+      film_metadata: filmMetadata,
     });
     if (!res.ok) return toast(res.error || "没能启动 AI 任务", { type: "error" });
-    const translateOnly = workflow === "translate_only";
+    const translateOnly = activeWorkflow === "translate_only";
     followTask({
       label: "AI",
       modal: "modalAi",
@@ -209,6 +220,7 @@ function setRunning(on) {
 }
 
 export function initAi() {
+  initTmdb();
   byId("btnOpenAi").addEventListener("click", () => openAi());
   byId("aiWorkflows").addEventListener("click", (e) => {
     const c = e.target.closest(".wf");

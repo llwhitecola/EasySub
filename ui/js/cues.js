@@ -6,6 +6,7 @@ import { toast } from "./feedback.js";
 import { call } from "./bridge.js";
 import { seekTo } from "./player.js";
 import { isMotion, trimMotionTime } from "./motion-path.js";
+import { filmMetadataForTranslation } from "./tmdb.js";
 
 /** Offer to undo the step that was just made, and only that one. */
 const undoAction = () => {
@@ -207,7 +208,10 @@ export async function translateCue(idx) {
   }
   const sent = [...state.subtitles];
   const before = sent.map((c) => ({ ...c }));
-  const res = await call("smart_fix_single_orphan_or_translate", before, idx);
+  const media = state.mediaId;
+  const filmMetadata = await filmMetadataForTranslation();
+  if (state.mediaId !== media || state.subtitles[idx] !== cue) return;
+  const res = await call("smart_fix_single_orphan_or_translate", before, idx, filmMetadata);
   if (!res.ok || !Array.isArray(res.subtitles)) {
     if (res.error) toast(res.error, { type: "error" });
     return;

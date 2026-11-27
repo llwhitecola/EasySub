@@ -120,7 +120,7 @@ export function applyLoadedSubtitles(res) {
     toast(`${res.file_name || "这个文件"} 里没有识别到字幕`, { type: "error" });
     return false;
   }
-  replaceCues(res.subtitles, "导入字幕");
+  replaceCues(res.subtitles, "导入字幕", { sourceName: res.file_name || "" });
   if (res.style) applyStyle(res.style);
   if (!isPlaying()) seekTo(state.subtitles[0].start_ms + 20);
   toast(`已导入 ${res.file_name}（${res.count} 句）${res.style ? "，并恢复了工程样式" : ""}`, { type: "success", action: undoAction() });

@@ -145,6 +145,8 @@ def load_settings() -> dict[str, Any]:
         "trans_context": "",
         "trans_custom_prompt": "",
         "trans_glossary": "",
+        "tmdb_auto_match": True,
+        "tmdb_credential": "",
         "llm_base": "https://api.deepseek.com/v1",
         "llm_key": "",
         "llm_model": "deepseek-chat",
@@ -162,12 +164,18 @@ def load_settings() -> dict[str, Any]:
     return defaults
 
 
-def _build_trans_cfg(settings: dict[str, Any]) -> dict[str, Any]:
+def _build_trans_cfg(settings: dict[str, Any], film_metadata: object = None) -> dict[str, Any]:
+    provider = settings.get("trans_provider", "free")
+    story_context = settings.get("trans_context") or ""
+    if provider == "llm" and film_metadata:
+        from core.tmdb import translation_context
+
+        story_context = "\n\n".join(filter(None, (story_context, translation_context(film_metadata))))
     return {
-        "provider": settings.get("trans_provider", "free"),
+        "provider": provider,
         "preset": settings.get("trans_preset", "us_drama"),
         "agent_mode": bool(settings.get("trans_agent_mode", True)),
-        "story_context": settings.get("trans_context", ""),
+        "story_context": story_context,
         "custom_prompt": settings.get("trans_custom_prompt", ""),
         "glossary": settings.get("trans_glossary", ""),
         "llm_base": settings.get("llm_base", ""),
@@ -528,7 +536,7 @@ class DesktopBridgeApi:
         return diagnose_bilingual_issues(subtitles)
 
     def smart_fix_single_orphan_or_translate(
-        self, subtitles: list[dict[str, Any]], row_idx: int
+        self, subtitles: list[dict[str, Any]], row_idx: int, film_metadata: object = None
     ) -> dict[str, Any]:
         """
         If row_idx is a 1-to-2 split-sentence orphan overlapping its neighbor (like row #19 + #20),
@@ -541,7 +549,7 @@ class DesktopBridgeApi:
             return {"ok": False, "error": "行号超出范围"}
 
         settings = load_settings()
-        trans_cfg = _build_trans_cfg(settings)
+        trans_cfg = _build_trans_cfg(settings, film_metadata)
 
         nb, _ = _find_best_orphan_neighbor(subtitles, row_idx)
         if nb >= 0:
@@ -612,7 +620,7 @@ class DesktopBridgeApi:
                 summary_parts: list[str] = []
 
                 settings = load_settings()
-                trans_cfg = _build_trans_cfg(settings)
+                trans_cfg = _build_trans_cfg(settings, options.get("film_metadata"))
 
                 # 1. Clean SDH sound-effect tags first so '(grunts)' rows don't interfere with orphan pairing!
                 if options.get("clean_sdh", True):
@@ -698,6 +706,29 @@ class DesktopBridgeApi:
     def update_user_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         merged = save_settings(settings or {})
         return {"ok": True, "settings": merged}
+
+    def lookup_tmdb_media(
+        self, name: str, from_file: bool = True, credential: str = ""
+    ) -> dict[str, Any]:
+        from core.tmdb import TmdbError, configured_credential, search_media
+
+        credential = configured_credential(credential)
+        if not credential:
+            return {"ok": False, "needs_credential": True}
+        try:
+            return {"ok": True, **search_media(credential, name, filename=from_file)}
+        except TmdbError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def load_tmdb_metadata(
+        self, candidate: dict[str, Any], credential: str = ""
+    ) -> dict[str, Any]:
+        from core.tmdb import TmdbError, configured_credential, load_metadata
+
+        try:
+            return {"ok": True, "metadata": load_metadata(configured_credential(credential), candidate)}
+        except TmdbError as exc:
+            return {"ok": False, "error": str(exc)}
 
     def test_llm_connection(self, settings: dict[str, Any]) -> dict[str, Any]:
         from core.media_ai import test_llm_api_connection
@@ -971,8 +1002,9 @@ class DesktopBridgeApi:
         if STATE.get_task()["running"]:
             return {"ok": False, "error": "已有 AI 任务正在运行中，请稍候…"}
 
+        video_path = STATE.video_path
         if workflow_type in ("asr_and_translate", "asr_only"):
-            if not STATE.video_path or not STATE.video_path.exists():
+            if not video_path or not video_path.exists():
                 return {"ok": False, "error": "配置已自动保存！如需语音听写请先打开一个音视频文件，或切换上方为「只翻译」。"}
         STATE.set_task(True, "正在启动 AI 双语助手…", 3)
 
@@ -993,7 +1025,7 @@ class DesktopBridgeApi:
                         "api_model": settings.get("asr_api_model", "whisper-1"),
                     }
                     subs = transcribe_video(
-                        STATE.video_path,  # type: ignore[arg-type]
+                        video_path,  # type: ignore[arg-type]
                         asr_cfg,
                         progress=lambda msg, pct: STATE.set_task(True, msg, pct),
                     )
@@ -1005,7 +1037,7 @@ class DesktopBridgeApi:
                 if workflow_type in ("asr_and_translate", "translate_only"):
                     direction = options.get("direction", "en_to_zh")
                     overwrite = bool(options.get("overwrite", False))
-                    trans_cfg = _build_trans_cfg(settings)
+                    trans_cfg = _build_trans_cfg(settings, options.get("film_metadata"))
                     subs = translate_subtitles(
                         subs,
                         direction=direction,

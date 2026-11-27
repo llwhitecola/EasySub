@@ -510,6 +510,30 @@
               <label class="lbl"><span>影片背景（选填，翻译更准）</span><input class="field" id="aiContext" type="text" spellcheck="false" placeholder="例如：《沙丘2》，保罗与弗雷曼人对抗哈克南家族" /></label>
               <label class="lbl"><span>人名与专有名词（选填，逗号分隔）</span><input class="field" id="aiGlossary" type="text" spellcheck="false" placeholder="Spice=香料, Paul=保罗, Harkonnen=哈克南" /></label>
             </div>
+            <div class="agent tmdb-panel">
+              <div class="box-head"><h4>TMDB 影视背景</h4><label class="switch"><input id="aiTmdbAutoMatch" type="checkbox" checked /><span>打开文件时自动匹配</span></label></div>
+              <div class="tmdb-input-row">
+                <input class="field" id="tmdbQuery" type="search" aria-label="搜索 TMDB 片名" placeholder="搜索片名，可加年份或季集号" />
+                <button class="btn" id="btnTmdbSearch" type="button">搜索 TMDB</button>
+              </div>
+              <p class="hint" id="tmdbStatus" role="status">输入片名即可手动搜索</p>
+              <div class="tmdb-input-row" id="tmdbCandidateRow" hidden>
+                <select class="field" id="tmdbCandidates" aria-label="TMDB 搜索结果"></select>
+                <button class="btn" id="btnTmdbAttach" type="button" disabled>关联条目</button>
+              </div>
+              <div class="stack tmdb-match" id="tmdbMatch" hidden>
+                <div class="box-head"><strong id="tmdbTitle"></strong><button class="link" id="btnTmdbClear" type="button">取消关联</button></div>
+                <p id="tmdbOverview"></p>
+                <p class="hint" id="tmdbRoles"></p>
+                <p class="hint tmdb-sources" id="tmdbSources"></p>
+              </div>
+              <details class="tmdb-settings">
+                <summary>TMDB 凭据与来源</summary>
+                <label class="lbl"><span>TMDB 读取令牌或 API Key</span><input class="field" id="aiTmdbCredential" type="password" spellcheck="false" autocomplete="off" /></label>
+                <p class="hint">自动匹配只查询提取的片名。关联资料用于 AI 影视精翻，并随翻译请求发送到所选模型。</p>
+                <p class="hint tmdb-attribution"><a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer"><img src="tmdb-logo.svg" alt="TMDB" /></a><span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span></p>
+              </details>
+            </div>
           </section>
         </div>
         <div class="progress" id="aiProgress" hidden><div id="aiDial"></div><p></p></div>

@@ -91,7 +91,7 @@ async function importPaste(btn) {
     const res = await call("import_pasted_script", text, byId("selPasteMode").value, merge, ownCues());
     if (!res.ok) return res.error && toast(res.error, { type: "error" });
     if (!res.subtitles?.length) return toast("没有识别到台词");
-    replaceCues(res.subtitles, "粘贴台词");
+    replaceCues(res.subtitles, "粘贴台词", { sourceName: merge ? undefined : "" });
     byId("txtPaste").value = "";
     closeModal("modalImport");
     toast(`已生成 ${res.count} 句，播放时按 F3 / F4 打轴`, { type: "success", action: undoAction() });

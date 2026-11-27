@@ -165,6 +165,13 @@
 .agent-row { align-items: end; }
 .agent-row .switch { min-height: 36px; white-space: normal; line-height: 1.45; }
 .lbl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tmdb-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.tmdb-match { gap: 6px; overflow-wrap: anywhere; }
+.tmdb-match p { margin: 0; }
+.tmdb-sources, .tmdb-attribution { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.tmdb-settings > summary { cursor: pointer; color: var(--tx-2); }
+.tmdb-settings > label { margin-top: 8px; }
+.tmdb-attribution img { display: block; width: 54px; height: auto; }
 .link { font-size: 12px; color: var(--tx-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; transition: color var(--t-1), text-decoration-color var(--t-1); }
 .link:hover { color: var(--tx-1); text-decoration-color: currentColor; }
 .prompt-base { max-height: 118px; padding: 11px 14px; overflow: auto; border-radius: var(--r-m); background: var(--inset); font: 12px/1.7 var(--font-ui); white-space: pre-wrap; color: var(--tx-2); user-select: text; }

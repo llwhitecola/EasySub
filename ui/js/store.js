@@ -55,6 +55,7 @@ export const state = {
   videoStem: "双语字幕",
   mediaDurationMs: 0,
   mediaId: 0, // grows with every film that is actually opened
+  subtitleFileName: "",
   durationMs: 18000,
   currentTimeMs: 1200,
   waveform: createDemoWaveform(),
@@ -244,6 +245,7 @@ export const capture = ({ includeStyle = false } = {}) =>
     subs: state.subtitles,
     sel: state.selectedIdx,
     demo: state.isDemo,
+    sourceName: state.subtitleFileName,
     ...(includeStyle ? { style: state.style, presetId: state.activePresetId } : {}),
   });
 
@@ -267,6 +269,7 @@ function restore(snapshot) {
   const data = JSON.parse(snapshot);
   state.subtitles = data.subs;
   state.isDemo = Boolean(data.demo);
+  setSubtitleSource(data.sourceName || "");
   state.selectedIdx = Math.max(0, Math.min(data.sel, state.subtitles.length - 1));
   if (data.style) {
     state.style = data.style;
@@ -315,9 +318,16 @@ const sameCue = (a, b) => ["zh", "en", "start_ms", "end_ms"].every((k) => a[k] =
 export const sameCues = (a, b) => a.length === b.length && a.every((c, i) => sameCue(c, b[i]));
 
 /** Replace all cues as one undoable step. */
-export function replaceCues(list, label, { select = 0 } = {}) {
+function setSubtitleSource(name) {
+  if (name === state.subtitleFileName) return;
+  state.subtitleFileName = name;
+  emit("subtitle-source", name);
+}
+
+export function replaceCues(list, label, { select = 0, sourceName = state.subtitleFileName } = {}) {
   pushHistory(label);
   state.subtitles = normalizeCues(list);
+  setSubtitleSource(sourceName);
   state.selectedIdx = Math.max(0, Math.min(select, state.subtitles.length - 1));
   syncDuration();
   emit("cues", { bulk: true });

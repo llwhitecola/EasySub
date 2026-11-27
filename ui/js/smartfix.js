@@ -6,6 +6,7 @@ import { closeModal, openModal, toast, withBusy } from "./feedback.js";
 import { bindSeg } from "./controls.js";
 import { call } from "./bridge.js";
 import { applyTaskResult, followTask, jobMark, taskRunning } from "./tasks.js";
+import { filmMetadataForTranslation } from "./tmdb.js";
 
 let orphanMode = "merge";
 let orphanSeg;
@@ -79,13 +80,20 @@ async function run(btn) {
   return withBusy(btn, async () => {
     const punct = byId("fixPunct").checked;
     const mark = jobMark();
-    const res = await call("start_smart_bilingual_autofix", state.subtitles, {
+    const options = {
       orphan_mode: orphanMode,
       clean_sdh: byId("fixSdh").checked,
       fix_overlaps: byId("fixOverlap").checked,
       fill_missing_ai: byId("fixFill").checked,
       skip_foreign_notes: byId("fixSkipForeign").checked,
-    });
+    };
+    if (options.orphan_mode === "ai_split" || options.fill_missing_ai) {
+      options.film_metadata = await filmMetadataForTranslation();
+    }
+    if (state.mediaId !== mark.media || state.subtitles !== mark.cues) {
+      return toast("当前影片或字幕已切换，请重新开始精修");
+    }
+    const res = await call("start_smart_bilingual_autofix", mark.cues, options);
     if (!res.ok) return toast(res.error || "没能启动精修", { type: "error" });
     followTask({
       label: "FIX",
